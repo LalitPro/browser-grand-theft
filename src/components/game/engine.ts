@@ -839,8 +839,8 @@ export class Game {
     ctx.fillStyle = g;
     ctx.fillRect(vx, vy, vw, vh);
 
-    // minimap (in-canvas)
-    this.drawMinimap(vx + vw - 124, vy + 12, 112, viewIndex);
+    // minimap (in-canvas) — top-left of each viewport to avoid the centered HUD
+    this.drawMinimap(vx + 12, vy + 12, 104, viewIndex);
   }
 
   private drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, color: string, enemy: boolean) {
