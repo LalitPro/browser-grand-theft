@@ -839,8 +839,10 @@ export class Game {
     ctx.fillStyle = g;
     ctx.fillRect(vx, vy, vw, vh);
 
-    // minimap (in-canvas) — top-left of each viewport to avoid the centered HUD
-    this.drawMinimap(vx + 12, vy + 12, 104, viewIndex);
+    // minimap (in-canvas) — push to outer corner so it clears the centered HUD
+    const mmRight = this.mode === "coop" && viewIndex === 1;
+    const mmx = mmRight ? vx + vw - 116 : vx + 12;
+    this.drawMinimap(mmx, vy + 12, 104, viewIndex);
   }
 
   private drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, color: string, enemy: boolean) {
