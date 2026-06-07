@@ -733,11 +733,6 @@ export class Game {
     }
     ctx.setLineDash([]);
 
-    // ground particles (skid/blood) under everything
-    for (const pt of this.particles) {
-      if (pt.max <= 3) continue; // only long-lived ground marks here? keep simple, draw all later
-    }
-
     // buildings with drop shadow + roof
     for (const b of this.buildings) {
       ctx.fillStyle = "rgba(0,0,0,0.4)";
