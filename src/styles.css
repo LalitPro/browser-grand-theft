@@ -158,4 +158,10 @@
   .text-stroke {
     -webkit-text-stroke: 2px oklch(0.16 0.02 250);
   }
+  .text-gradient {
+    background-image: var(--gradient-hero);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
