@@ -628,7 +628,6 @@ export class Game {
         });
       }
     }
-    this.enemies = this.enemies.filter((e) => e.alive || false);
     this.enemies = this.enemies.filter((e) => e.alive);
   }
 
