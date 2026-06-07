@@ -144,9 +144,7 @@ export default function LosSantosGame() {
               Welcome to
             </p>
             <h1 className="font-display text-7xl uppercase leading-[0.9] sm:text-8xl">
-              <span className="bg-[var(--gradient-hero)] bg-clip-text text-transparent">
-                Los Pollos
-              </span>
+              <span className="text-gradient">Los Pollos</span>
               <br />
               <span className="text-foreground">Streets</span>
             </h1>
