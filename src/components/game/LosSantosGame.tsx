@@ -153,8 +153,7 @@ export default function LosSantosGame() {
 }
 
 function PlayerPanel({ index, hud, coop }: { index: number; hud: PlayerHud; coop: boolean }) {
-  // P1 top-left; in co-op P2 top-right (below the money panel it never overlaps).
-  const side = index === 0 ? "left-4 items-start" : "right-4 items-end top-28";
+  // P1 top-left; in co-op P2 top-right (below the money panel so it never overlaps).
   const top = index === 0 ? "top-4" : "top-28";
   const accent = index === 0 ? "#ff4d4d" : "#39b6ff";
   return (
