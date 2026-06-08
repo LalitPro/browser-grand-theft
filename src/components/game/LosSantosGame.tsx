@@ -6,7 +6,7 @@ const INITIAL: GameState = {
   cash: 0,
   wanted: 0,
   score: 0,
-  players: [{ health: 100, speedKmh: 0, onFoot: true, alive: true, respawnIn: 0, ammo: 60 }],
+  players: [{ health: 100, speedKmh: 0, onFoot: true, alive: true, respawnIn: 0, ammo: 48 }],
   running: false,
   gameOver: false,
 };
@@ -68,27 +68,35 @@ export default function LosSantosGame() {
 
       {screen === "playing" && (
         <>
-          {/* top center: shared cash / score / wanted */}
-          <div className="pointer-events-none absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3">
-            <div className="rounded-md border border-border bg-card/85 px-4 py-2 text-center backdrop-blur">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Cash</p>
-              <p className="font-display text-2xl leading-none text-primary">${state.cash.toLocaleString()}</p>
+          {/* GTA-style top-right: money + wanted stars */}
+          <div className="pointer-events-none absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
+            <div className="rounded-sm bg-black/55 px-4 py-1.5 backdrop-blur-sm">
+              <span className="font-display text-3xl leading-none tracking-wide text-[#7bd88f] drop-shadow">
+                ₹{state.cash.toLocaleString("en-IN")}
+              </span>
             </div>
-            <div className="flex gap-1 rounded-md border border-border bg-card/85 px-3 py-2 backdrop-blur">
+            <div className="flex gap-1 rounded-sm bg-black/45 px-2 py-1 backdrop-blur-sm">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Star key={i} active={i < state.wanted} />
               ))}
             </div>
-            <div className="rounded-md border border-border bg-card/85 px-4 py-2 text-center backdrop-blur">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Score</p>
-              <p className="font-display text-2xl leading-none text-foreground">{state.score}</p>
+            <div className="rounded-sm bg-black/45 px-3 py-0.5 backdrop-blur-sm">
+              <span className="text-[11px] uppercase tracking-[0.25em] text-white/70">Score </span>
+              <span className="font-display text-sm text-white">{state.score}</span>
             </div>
           </div>
 
-          {/* per-player HUD */}
+          {/* per-player health panels (top corners) */}
           {state.players.map((p, i) => (
             <PlayerPanel key={i} index={i} hud={p} coop={state.mode === "coop"} />
           ))}
+
+          {/* controls hint */}
+          <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-sm bg-black/40 px-3 py-1.5 text-right backdrop-blur-sm">
+            <p className="text-[11px] uppercase tracking-widest text-white/60">
+              {state.mode === "coop" ? "P1 WASD · F · E   |   P2 Arrows · / · Enter" : "WASD move · F shoot · E car"}
+            </p>
+          </div>
         </>
       )}
 
