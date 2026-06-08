@@ -6,7 +6,7 @@ const INITIAL: GameState = {
   cash: 0,
   wanted: 0,
   score: 0,
-  players: [{ health: 100, speedKmh: 0, onFoot: true, alive: true, respawnIn: 0, ammo: 60 }],
+  players: [{ health: 100, speedKmh: 0, onFoot: true, alive: true, respawnIn: 0, ammo: 48 }],
   running: false,
   gameOver: false,
 };
@@ -68,27 +68,35 @@ export default function LosSantosGame() {
 
       {screen === "playing" && (
         <>
-          {/* top center: shared cash / score / wanted */}
-          <div className="pointer-events-none absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-3">
-            <div className="rounded-md border border-border bg-card/85 px-4 py-2 text-center backdrop-blur">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Cash</p>
-              <p className="font-display text-2xl leading-none text-primary">${state.cash.toLocaleString()}</p>
+          {/* GTA-style top-right: money + wanted stars */}
+          <div className="pointer-events-none absolute right-4 top-4 z-10 flex flex-col items-end gap-2">
+            <div className="rounded-sm bg-black/55 px-4 py-1.5 backdrop-blur-sm">
+              <span className="font-display text-3xl leading-none tracking-wide text-[#7bd88f] drop-shadow">
+                ₹{state.cash.toLocaleString("en-IN")}
+              </span>
             </div>
-            <div className="flex gap-1 rounded-md border border-border bg-card/85 px-3 py-2 backdrop-blur">
+            <div className="flex gap-1 rounded-sm bg-black/45 px-2 py-1 backdrop-blur-sm">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Star key={i} active={i < state.wanted} />
               ))}
             </div>
-            <div className="rounded-md border border-border bg-card/85 px-4 py-2 text-center backdrop-blur">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Score</p>
-              <p className="font-display text-2xl leading-none text-foreground">{state.score}</p>
+            <div className="rounded-sm bg-black/45 px-3 py-0.5 backdrop-blur-sm">
+              <span className="text-[11px] uppercase tracking-[0.25em] text-white/70">Score </span>
+              <span className="font-display text-sm text-white">{state.score}</span>
             </div>
           </div>
 
-          {/* per-player HUD */}
+          {/* per-player health panels (top corners) */}
           {state.players.map((p, i) => (
             <PlayerPanel key={i} index={i} hud={p} coop={state.mode === "coop"} />
           ))}
+
+          {/* controls hint */}
+          <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-sm bg-black/40 px-3 py-1.5 text-right backdrop-blur-sm">
+            <p className="text-[11px] uppercase tracking-widest text-white/60">
+              {state.mode === "coop" ? "P1 WASD · F · E   |   P2 Arrows · / · Enter" : "WASD move · F shoot · E car"}
+            </p>
+          </div>
         </>
       )}
 
@@ -105,16 +113,17 @@ export default function LosSantosGame() {
             {screen === "over" ? (
               <div className="mt-5">
                 <p className="font-display text-2xl uppercase text-destructive">Wasted</p>
-                <p className="mt-2 text-muted-foreground">
-                  Payday: <span className="text-primary">${state.cash.toLocaleString()}</span> · Score:{" "}
+                 <p className="mt-2 text-muted-foreground">
+                   Payday: <span className="text-primary">₹{state.cash.toLocaleString("en-IN")}</span> · Score:{" "}
                   <span className="text-foreground">{state.score}</span>
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">Best run: {best}</p>
               </div>
             ) : (
               <p className="mx-auto mt-4 max-w-md text-muted-foreground">
-                Steal cars, shoot it out, grab the cash and outrun the cops. Play solo or grab a friend for
-                split-screen local co-op.
+                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off a crime to
+                trigger a 1-star police chase — then lose them. Play solo or grab a friend for split-screen
+                co-op (you can even share the same car).
               </p>
             )}
 
@@ -145,33 +154,41 @@ export default function LosSantosGame() {
 }
 
 function PlayerPanel({ index, hud, coop }: { index: number; hud: PlayerHud; coop: boolean }) {
-  const side = index === 0 ? "left-4" : "right-4";
-  const accent = index === 0 ? "#ff6b6b" : "#39b6ff";
+  // P1 top-left; in co-op P2 top-right (below the money panel so it never overlaps).
+  const top = index === 0 ? "top-4" : "top-28";
+  const accent = index === 0 ? "#ff4d4d" : "#39b6ff";
   return (
-    <div className={`pointer-events-none absolute bottom-4 ${side} z-10 w-56`}>
-      <div className="rounded-md border border-border bg-card/85 p-3 backdrop-blur">
+    <div className={`pointer-events-none absolute ${index === 0 ? "left-4" : "right-4"} ${top} z-10 flex w-52 flex-col ${index === 0 ? "items-start" : "items-end"}`}>
+      <div className="w-full rounded-sm bg-black/50 px-3 py-2 backdrop-blur-sm">
         <div className="mb-1 flex items-center justify-between">
-          <span className="font-display text-sm uppercase tracking-wider" style={{ color: accent }}>
-            {coop ? `Player ${index + 1}` : "You"}
+          <span className="font-display text-xs uppercase tracking-wider" style={{ color: accent }}>
+            {coop ? `Player ${index + 1}` : "Health"}
           </span>
-          <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-widest text-white/55">
             {hud.onFoot ? "on foot" : `${hud.speedKmh} km/h`}
           </span>
         </div>
         {hud.alive ? (
           <>
-            <div className="h-2.5 w-full overflow-hidden rounded-full border border-border bg-secondary">
-              <div
-                className="h-full transition-all duration-150"
-                style={{ width: `${hud.health}%`, background: hud.health > 40 ? "var(--neon-cyan)" : "var(--destructive)" }}
-              />
+            {/* segmented GTA-style health bar */}
+            <div className="flex h-2.5 w-full gap-0.5">
+              {Array.from({ length: 10 }).map((_, i) => {
+                const filled = hud.health > i * 10;
+                return (
+                  <div
+                    key={i}
+                    className="h-full flex-1 transition-colors"
+                    style={{ background: filled ? (hud.health > 40 ? "#41d67e" : "#e23b3b") : "rgba(255,255,255,0.12)" }}
+                  />
+                );
+              })}
             </div>
-            <p className="mt-1.5 text-[11px] uppercase tracking-widest text-muted-foreground">
-              Ammo <span className="text-foreground">{hud.ammo}</span>
+            <p className="mt-1.5 text-[10px] uppercase tracking-widest text-white/55">
+              Ammo <span className="text-white">{hud.ammo}</span>
             </p>
           </>
         ) : (
-          <p className="font-display text-sm uppercase text-destructive">
+          <p className="font-display text-sm uppercase text-[#e23b3b]">
             {coop ? `Down — respawn ${hud.respawnIn}s` : "Wasted"}
           </p>
         )}

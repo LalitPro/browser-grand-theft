@@ -1,4 +1,8 @@
-// Top-down GTA-style co-op engine: on-foot + driving + shooting, split-screen.
+// ===========================================================================
+// Clean MVP top-down GTA-style co-op engine.
+// Core loop only: walk -> steal car/bike -> shoot -> 1-star police -> escape.
+// Hand-designed small "Indian-style" test city. No gangs / missions / advanced AI.
+// ===========================================================================
 
 export type Mode = "solo" | "coop";
 
@@ -14,7 +18,7 @@ export interface PlayerHud {
 export interface GameState {
   mode: Mode;
   cash: number;
-  wanted: number;
+  wanted: number; // 0 or 1 for the MVP
   score: number;
   players: PlayerHud[];
   running: boolean;
@@ -23,29 +27,58 @@ export interface GameState {
 
 type Listener = (s: GameState) => void;
 
-interface Rect {
+type BKind = "house" | "shop" | "office";
+
+interface Building {
   x: number;
   y: number;
   w: number;
   h: number;
-  color: string;
+  wall: string;
   roof: string;
+  kind: BKind;
 }
+
+interface Road {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  horizontal: boolean;
+  highway: boolean;
+}
+
+interface Park {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface Tree {
+  x: number;
+  y: number;
+  r: number;
+}
+
+type VType = "car" | "bike";
 
 interface Vehicle {
   x: number;
   y: number;
   angle: number;
   speed: number;
+  type: VType;
   color: string;
-  occupant: number | null;
+  occupants: number[]; // player ids; [0] is the driver
+  stolen: boolean;
 }
 
 interface Player {
   id: number;
   x: number;
   y: number;
-  angle: number; // facing
+  angle: number;
   vx: number;
   vy: number;
   health: number;
@@ -56,16 +89,16 @@ interface Player {
   enterCd: number;
   color: string;
   ammo: number;
+  walkPhase: number;
 }
 
-interface Enemy {
+interface Cop {
   x: number;
   y: number;
   angle: number;
   health: number;
   shootCd: number;
   alive: boolean;
-  cop: boolean;
 }
 
 interface Ped {
@@ -91,7 +124,6 @@ interface Pickup {
   y: number;
   taken: boolean;
   pulse: number;
-  kind: "cash" | "ammo";
 }
 
 interface Particle {
@@ -105,19 +137,25 @@ interface Particle {
   size: number;
 }
 
-const CELL = 460;
-const ROAD = 130;
-const GRID = 10;
-const WORLD = CELL * GRID;
+// ---- world layout --------------------------------------------------------
+const ROAD = 120;
+const BW = 540;
+const BH = 500;
+const COLS = 4;
+const ROWS = 3;
+export const WORLD_W = ROAD + COLS * (BW + ROAD); // 2760
+export const WORLD_H = ROAD + ROWS * (BH + ROAD); // 1980
+const WORLD = Math.max(WORLD_W, WORLD_H);
 
-const BUILDING = [
-  ["#2b3550", "#3a466b"],
-  ["#33304a", "#46415f"],
-  ["#2a3a44", "#3a4f5c"],
-  ["#3a3142", "#4f4259"],
-  ["#283648", "#374a61"],
+type Zone = "residential" | "market" | "office" | "park";
+const ZONES: Zone[][] = [
+  ["residential", "residential", "market", "office"],
+  ["park", "residential", "office", "market"],
+  ["office", "market", "residential", "park"],
 ];
-const P_COLORS = ["#e23b3b", "#39b6ff"];
+
+const P_COLORS = ["#ff4d4d", "#39b6ff"];
+const SHOP_COLORS = ["#e0a13a", "#cf5b48", "#3f9d8f", "#c463a6", "#5b8dd6"];
 
 function rand(a: number, b: number) {
   return a + Math.random() * (b - a);
@@ -132,18 +170,21 @@ export class Game {
   private listener: Listener;
   private mode: Mode = "solo";
 
-  private buildings: Rect[] = [];
+  private buildings: Building[] = [];
+  private roads: Road[] = [];
+  private parks: Park[] = [];
+  private trees: Tree[] = [];
   private vehicles: Vehicle[] = [];
   private players: Player[] = [];
-  private enemies: Enemy[] = [];
+  private cops: Cop[] = [];
   private peds: Ped[] = [];
   private bullets: Bullet[] = [];
   private pickups: Pickup[] = [];
   private particles: Particle[] = [];
-  private cams: { x: number; y: number }[] = [];
+  private cams: { x: number; y: number; shake: number }[] = [];
 
-  private wantedTimer = 0;
-  private enemyTimer = 0;
+  private copSpawnCd = 0;
+  private escapeTimer = 0; // seconds out of police sight
 
   state: GameState = this.blankState("solo");
 
@@ -166,93 +207,155 @@ export class Game {
         onFoot: true,
         alive: true,
         respawnIn: 0,
-        ammo: 60,
+        ammo: 48,
       })),
       running: false,
       gameOver: false,
     };
   }
 
+  // ---- world generation --------------------------------------------------
+  private block(c: number, r: number) {
+    return { x: ROAD + c * (BW + ROAD), y: ROAD + r * (BH + ROAD) };
+  }
+
   private buildWorld() {
     this.buildings = [];
-    for (let gx = 0; gx < GRID; gx++) {
-      for (let gy = 0; gy < GRID; gy++) {
-        if (Math.random() < 0.22) continue; // park / lot
-        const pal = BUILDING[(gx * 3 + gy) % BUILDING.length];
-        this.buildings.push({
-          x: gx * CELL + ROAD / 2,
-          y: gy * CELL + ROAD / 2,
-          w: CELL - ROAD,
-          h: CELL - ROAD,
-          color: pal[0],
-          roof: pal[1],
-        });
+    this.roads = [];
+    this.parks = [];
+    this.trees = [];
+
+    // roads: a clean grid. The middle horizontal road is a wide "highway".
+    for (let c = 0; c <= COLS; c++) {
+      const x = c * (BW + ROAD);
+      this.roads.push({ x, y: 0, w: ROAD, h: WORLD_H, horizontal: false, highway: false });
+    }
+    for (let r = 0; r <= ROWS; r++) {
+      const highway = r === 1;
+      const h = highway ? ROAD + 70 : ROAD;
+      const y = r * (BH + ROAD) - (highway ? 35 : 0);
+      this.roads.push({ x: 0, y, w: WORLD_W, h, horizontal: true, highway });
+    }
+
+    // blocks -> zones
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const { x, y } = this.block(c, r);
+        this.fillBlock(x, y, ZONES[r][c]);
       }
     }
 
+    // pickups (cash) for the money loop
     this.pickups = [];
-    for (let i = 0; i < 46; i++) {
-      const gx = Math.floor(rand(0, GRID));
-      const gy = Math.floor(rand(0, GRID));
-      this.pickups.push({
-        x: gx * CELL + (Math.random() < 0.5 ? 0 : CELL / 2),
-        y: gy * CELL + (Math.random() < 0.5 ? 0 : CELL / 2),
-        taken: false,
-        pulse: rand(0, 6.28),
-        kind: Math.random() < 0.7 ? "cash" : "ammo",
-      });
+    for (let i = 0; i < 14; i++) {
+      this.pickups.push({ x: rand(ROAD, WORLD_W - ROAD), y: rand(ROAD, WORLD_H - ROAD), taken: false, pulse: rand(0, 6.28) });
     }
 
+    // dummy pedestrians
     this.peds = [];
-    for (let i = 0; i < 70; i++) this.peds.push(this.spawnPed());
+    for (let i = 0; i < 26; i++) this.peds.push(this.spawnPed());
 
+    // vehicles: 1 car near spawn (shareable), 1 bike, + a couple parked cars
     this.vehicles = [];
-    const carColors = ["#d6b24a", "#5cc46a", "#bd5cd6", "#46b1c9", "#c9603f", "#8a93a8"];
-    for (let i = 0; i < 22; i++) {
-      const gx = Math.floor(rand(0, GRID));
-      const gy = Math.floor(rand(0, GRID));
-      this.vehicles.push({
-        x: gx * CELL + rand(-40, 40),
-        y: gy * CELL + rand(-40, 40),
-        angle: Math.random() < 0.5 ? 0 : Math.PI / 2,
-        speed: 0,
-        color: carColors[i % carColors.length],
-        occupant: null,
-      });
+    const spawn = this.block(0, 0);
+    this.vehicles.push(this.mkVehicle(spawn.x + BW + 30, spawn.y + BH / 2, "car", "#d8c24a"));
+    this.vehicles.push(this.mkVehicle(spawn.x + BW / 2, spawn.y + BH + 30, "bike", "#46b1c9"));
+    this.vehicles.push(this.mkVehicle(this.block(2, 1).x - 30, this.block(2, 1).y + 60, "car", "#5cc46a"));
+    this.vehicles.push(this.mkVehicle(this.block(3, 2).x + 60, this.block(3, 2).y - 30, "car", "#c9603f"));
+  }
+
+  private mkVehicle(x: number, y: number, type: VType, color: string): Vehicle {
+    return { x, y, angle: 0, speed: 0, type, color, occupants: [], stolen: false };
+  }
+
+  private fillBlock(x0: number, y0: number, zone: Zone) {
+    if (zone === "park") {
+      this.parks.push({ x: x0, y: y0, w: BW, h: BH });
+      for (let i = 0; i < 7; i++) this.trees.push({ x: rand(x0 + 30, x0 + BW - 30), y: rand(y0 + 30, y0 + BH - 30), r: rand(16, 26) });
+      return;
+    }
+    if (zone === "office") {
+      // 1-2 tall buildings filling most of the block
+      this.buildings.push({ x: x0 + 30, y: y0 + 30, w: BW - 60, h: BH * 0.55 - 20, wall: "#566379", roof: "#404a5e", kind: "office" });
+      this.buildings.push({ x: x0 + 30, y: y0 + BH * 0.55 + 20, w: BW * 0.55, h: BH * 0.45 - 30, wall: "#5d6b82", roof: "#48526a", kind: "office" });
+      return;
+    }
+    if (zone === "market") {
+      // two rows of small shops with colorful awnings
+      const rows = 2;
+      const cols = 3;
+      const gap = 24;
+      const sw = (BW - gap * (cols + 1)) / cols;
+      const sh = (BH - gap * (rows + 1)) / rows;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          this.buildings.push({
+            x: x0 + gap + c * (sw + gap),
+            y: y0 + gap + r * (sh + gap),
+            w: sw,
+            h: sh,
+            wall: "#c9b79a",
+            roof: SHOP_COLORS[(r * cols + c) % SHOP_COLORS.length],
+            kind: "shop",
+          });
+        }
+      }
+      return;
+    }
+    // residential: a 2x2 grid of houses with yards
+    const gap = 40;
+    const hw = (BW - gap * 3) / 2;
+    const hh = (BH - gap * 3) / 2;
+    for (let r = 0; r < 2; r++) {
+      for (let c = 0; c < 2; c++) {
+        this.buildings.push({
+          x: x0 + gap + c * (hw + gap),
+          y: y0 + gap + r * (hh + gap),
+          w: hw,
+          h: hh,
+          wall: "#d9b48c",
+          roof: "#b5532f",
+          kind: "house",
+        });
+      }
     }
   }
 
   private spawnPed(): Ped {
-    const colors = ["#e2c08d", "#d98c5f", "#f0d6c2", "#b5e0c2", "#e0b5d4"];
+    const colors = ["#e2c08d", "#d98c5f", "#f0d6c2", "#b5e0c2", "#e0b5d4", "#c9a0e0"];
     return {
-      x: rand(0, WORLD),
-      y: rand(0, WORLD),
-      vx: rand(-22, 22),
-      vy: rand(-22, 22),
+      x: rand(ROAD, WORLD_W - ROAD),
+      y: rand(ROAD, WORLD_H - ROAD),
+      vx: rand(-26, 26),
+      vy: rand(-26, 26),
       color: colors[(Math.random() * colors.length) | 0],
       alive: true,
     };
   }
 
+  // ---- lifecycle ---------------------------------------------------------
   start(mode: Mode) {
     this.mode = mode;
     this.state = this.blankState(mode);
     this.buildWorld();
-    this.enemies = [];
+    this.cops = [];
     this.bullets = [];
     this.particles = [];
+    this.copSpawnCd = 0;
+    this.escapeTimer = 0;
 
     const n = mode === "coop" ? 2 : 1;
     this.players = [];
     this.cams = [];
+    const spawn = this.block(0, 0);
     for (let i = 0; i < n; i++) {
-      const px = CELL + i * 60;
-      const py = CELL;
+      const px = spawn.x + BW / 2 + i * 40;
+      const py = spawn.y + BH / 2;
       this.players.push({
         id: i,
         x: px,
         y: py,
-        angle: -Math.PI / 2,
+        angle: 0,
         vx: 0,
         vy: 0,
         health: 100,
@@ -262,9 +365,10 @@ export class Game {
         shootCd: 0,
         enterCd: 0,
         color: P_COLORS[i],
-        ammo: 60,
+        ammo: 48,
+        walkPhase: 0,
       });
-      this.cams.push({ x: px, y: py });
+      this.cams.push({ x: px, y: py, shake: 0 });
     }
 
     this.state.running = true;
@@ -307,14 +411,14 @@ export class Game {
     this.raf = requestAnimationFrame(this.loop);
   };
 
-  private collidesBuilding(x: number, y: number, r: number) {
+  // ---- collision ---------------------------------------------------------
+  private collides(x: number, y: number, r: number) {
     for (const b of this.buildings) {
       if (x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h) return true;
     }
     return false;
   }
 
-  // ----- input maps per player -----
   private ctrl(i: number) {
     if (i === 0)
       return {
@@ -335,53 +439,25 @@ export class Game {
     };
   }
 
+  // ---- update ------------------------------------------------------------
   private update(dt: number) {
     for (const p of this.players) this.updatePlayer(p, dt);
-
-    // peds
-    for (const ped of this.peds) {
-      if (!ped.alive) continue;
-      if (Math.random() < 0.01) {
-        ped.vx = rand(-22, 22);
-        ped.vy = rand(-22, 22);
-      }
-      ped.x = (ped.x + ped.vx * dt + WORLD) % WORLD;
-      ped.y = (ped.y + ped.vy * dt + WORLD) % WORLD;
-      for (const p of this.players) {
-        if (p.vehicle && Math.hypot(ped.x - p.vehicle.x, ped.y - p.vehicle.y) < 22 && Math.abs(p.vehicle.speed) > 60) {
-          ped.alive = false;
-          this.state.score += 50;
-          this.blood(ped.x, ped.y);
-          this.bumpWanted(1);
-          setTimeout(() => Object.assign(ped, this.spawnPed()), 7000);
-        }
-      }
-    }
-
+    this.updatePeds(dt);
     this.updateBullets(dt);
-    this.updateEnemies(dt);
+    this.updatePolice(dt);
     this.updatePickups(dt);
     this.updateParticles(dt);
 
-    // wanted decay
-    if (this.state.wanted > 0) {
-      this.wantedTimer -= dt;
-      if (this.wantedTimer <= 0) {
-        this.state.wanted = Math.max(0, this.state.wanted - 1);
-        this.wantedTimer = 12;
-      }
-    }
-
-    // cameras
+    // cameras (smooth follow + shake decay)
     this.players.forEach((p, i) => {
       const tx = p.vehicle ? p.vehicle.x : p.x;
       const ty = p.vehicle ? p.vehicle.y : p.y;
       const c = this.cams[i];
-      c.x += (tx - c.x) * Math.min(1, 6 * dt);
-      c.y += (ty - c.y) * Math.min(1, 6 * dt);
+      c.x += (tx - c.x) * Math.min(1, 5 * dt);
+      c.y += (ty - c.y) * Math.min(1, 5 * dt);
+      c.shake = Math.max(0, c.shake - dt * 18);
     });
 
-    // game over
     const anyAlive = this.players.some((p) => p.alive);
     if (!anyAlive) {
       this.state.running = false;
@@ -401,112 +477,188 @@ export class Game {
     p.enterCd -= dt;
 
     if (p.vehicle) {
-      const v = p.vehicle;
-      const accel = 540,
-        reverse = 320,
-        maxSpeed = 600,
-        turn = 2.7;
+      this.updateInVehicle(p, c, dt);
+      return;
+    }
+
+    // ---- on foot: smooth acceleration / friction ----
+    let tx = 0;
+    let ty = 0;
+    if (c.up) ty -= 1;
+    if (c.down) ty += 1;
+    if (c.left) tx -= 1;
+    if (c.right) tx += 1;
+    const len = Math.hypot(tx, ty) || 1;
+    const SP = 195;
+    const tvx = (tx / len) * (tx || ty ? SP : 0);
+    const tvy = (ty / len) * (tx || ty ? SP : 0);
+    const k = Math.min(1, 11 * dt);
+    p.vx += (tvx - p.vx) * k;
+    p.vy += (tvy - p.vy) * k;
+
+    const nx = p.x + p.vx * dt;
+    const ny = p.y + p.vy * dt;
+    if (!this.collides(nx, p.y, 9)) p.x = nx;
+    else p.vx = 0;
+    if (!this.collides(p.x, ny, 9)) p.y = ny;
+    else p.vy = 0;
+    p.x = Math.max(10, Math.min(WORLD_W - 10, p.x));
+    p.y = Math.max(10, Math.min(WORLD_H - 10, p.y));
+
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > 6) p.angle = Math.atan2(p.vy, p.vx);
+    p.walkPhase += sp * dt * 0.05;
+
+    if (c.enter && p.enterCd <= 0) {
+      p.enterCd = 0.45;
+      this.tryEnter(p);
+    }
+
+    if (c.shoot && p.shootCd <= 0 && p.ammo > 0) {
+      p.shootCd = 0.17;
+      p.ammo--;
+      this.fire(p);
+    }
+  }
+
+  private updateInVehicle(p: Player, c: ReturnType<Game["ctrl"]>, dt: number) {
+    const v = p.vehicle!;
+    const driver = v.occupants[0] === p.id;
+
+    if (driver) {
+      const bike = v.type === "bike";
+      const accel = bike ? 620 : 540;
+      const maxSpeed = bike ? 640 : 580;
+      const turn = bike ? 3.1 : 2.6;
       if (c.up) v.speed += accel * dt;
-      else if (c.down) v.speed -= reverse * dt;
-      else v.speed *= 1 - 1.6 * dt;
-      v.speed = Math.max(-240, Math.min(maxSpeed, v.speed));
-      if (Math.abs(v.speed) < 3) v.speed = 0;
-      const sf = Math.max(-1, Math.min(1, v.speed / 120));
+      else if (c.down) v.speed -= 320 * dt;
+      else v.speed *= 1 - 1.5 * dt; // engine drag / friction
+      v.speed = Math.max(-220, Math.min(maxSpeed, v.speed));
+      if (Math.abs(v.speed) < 3 && !c.up && !c.down) v.speed = 0;
+
+      // smooth turning scaled by speed -> slight drift feel
+      const sf = Math.max(-1, Math.min(1, v.speed / 130));
       if (c.left) v.angle -= turn * sf * dt;
       if (c.right) v.angle += turn * sf * dt;
+
       const nx = v.x + Math.cos(v.angle) * v.speed * dt;
       const ny = v.y + Math.sin(v.angle) * v.speed * dt;
-      if (!this.collidesBuilding(nx, v.y, 16)) v.x = nx;
-      else v.speed *= 0.3;
-      if (!this.collidesBuilding(v.x, ny, 16)) v.y = ny;
-      else v.speed *= 0.3;
-      v.x = Math.max(20, Math.min(WORLD - 20, v.x));
-      v.y = Math.max(20, Math.min(WORLD - 20, v.y));
-      p.x = v.x;
-      p.y = v.y;
-      p.angle = v.angle;
-      if (Math.abs(v.speed) > 320 && (c.left || c.right) && Math.random() < 0.5)
-        this.particles.push({ x: v.x, y: v.y, vx: 0, vy: 0, life: 3, max: 3, color: "rgba(10,10,14,0.5)", size: 5 });
-      if (c.enter && p.enterCd <= 0) {
-        p.enterCd = 0.4;
-        v.occupant = null;
-        p.vehicle = null;
-        p.x = v.x + Math.cos(v.angle + Math.PI / 2) * 26;
-        p.y = v.y + Math.sin(v.angle + Math.PI / 2) * 26;
-      }
-    } else {
-      const sp = 175;
-      let mx = 0,
-        my = 0;
-      if (c.up) my -= 1;
-      if (c.down) my += 1;
-      if (c.left) mx -= 1;
-      if (c.right) mx += 1;
-      const len = Math.hypot(mx, my) || 1;
-      mx /= len;
-      my /= len;
-      if (mx || my) p.angle = Math.atan2(my, mx);
-      const nx = p.x + mx * sp * dt;
-      const ny = p.y + my * sp * dt;
-      if (!this.collidesBuilding(nx, p.y, 9)) p.x = nx;
-      if (!this.collidesBuilding(p.x, ny, 9)) p.y = ny;
-      p.x = Math.max(10, Math.min(WORLD - 10, p.x));
-      p.y = Math.max(10, Math.min(WORLD - 10, p.y));
+      const rad = bike ? 12 : 17;
+      if (!this.collides(nx, v.y, rad)) v.x = nx;
+      else v.speed *= 0.25;
+      if (!this.collides(v.x, ny, rad)) v.y = ny;
+      else v.speed *= 0.25;
+      v.x = Math.max(20, Math.min(WORLD_W - 20, v.x));
+      v.y = Math.max(20, Math.min(WORLD_H - 20, v.y));
 
-      if (c.enter && p.enterCd <= 0) {
-        p.enterCd = 0.4;
-        let best: Vehicle | null = null;
-        let bd = 60;
-        for (const v of this.vehicles) {
-          if (v.occupant !== null) continue;
-          const d = Math.hypot(v.x - p.x, v.y - p.y);
-          if (d < bd) {
-            bd = d;
-            best = v;
+      // tyre marks when turning fast
+      if (Math.abs(v.speed) > 340 && (c.left || c.right) && Math.random() < 0.5)
+        this.particles.push({ x: v.x, y: v.y, vx: 0, vy: 0, life: 2.5, max: 2.5, color: "rgba(15,15,20,0.45)", size: 4 });
+
+      // run over peds
+      if (Math.abs(v.speed) > 90) {
+        for (const ped of this.peds) {
+          if (ped.alive && Math.hypot(ped.x - v.x, ped.y - v.y) < 22) {
+            ped.alive = false;
+            this.state.score += 30;
+            this.blood(ped.x, ped.y);
+            this.commitCrime();
+            setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
           }
         }
-        if (best) {
-          best.occupant = p.id;
-          p.vehicle = best;
-        }
-      }
-
-      if (c.shoot && p.shootCd <= 0 && p.ammo > 0) {
-        p.shootCd = 0.16;
-        p.ammo--;
-        const spread = rand(-0.05, 0.05);
-        const a = p.angle + spread;
-        this.bullets.push({
-          x: p.x + Math.cos(a) * 14,
-          y: p.y + Math.sin(a) * 14,
-          vx: Math.cos(a) * 760,
-          vy: Math.sin(a) * 760,
-          life: 0.7,
-          hostile: false,
-        });
-        this.particles.push({
-          x: p.x + Math.cos(a) * 16,
-          y: p.y + Math.sin(a) * 16,
-          vx: 0,
-          vy: 0,
-          life: 0.06,
-          max: 0.06,
-          color: "rgba(255,220,120,0.95)",
-          size: 10,
-        });
       }
     }
+
+    // all occupants ride along
+    p.x = v.x;
+    p.y = v.y;
+    p.angle = v.angle;
+
+    if (c.enter && p.enterCd <= 0) {
+      p.enterCd = 0.45;
+      this.exitVehicle(p);
+    }
+  }
+
+  private tryEnter(p: Player) {
+    let best: Vehicle | null = null;
+    let bd = 64;
+    for (const v of this.vehicles) {
+      const cap = v.type === "bike" ? 1 : 2;
+      if (v.occupants.length >= cap) continue;
+      const d = Math.hypot(v.x - p.x, v.y - p.y);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    if (!best) return;
+    const firstSteal = best.occupants.length === 0;
+    best.occupants.push(p.id);
+    p.vehicle = best;
+    // entering an unoccupied car/bike = grand theft auto -> police
+    if (firstSteal && !best.stolen) {
+      best.stolen = true;
+      this.commitCrime();
+    }
+  }
+
+  private exitVehicle(p: Player) {
+    const v = p.vehicle!;
+    v.occupants = v.occupants.filter((id) => id !== p.id);
+    p.vehicle = null;
+    p.vx = 0;
+    p.vy = 0;
+    p.x = v.x + Math.cos(v.angle + Math.PI / 2) * 30;
+    p.y = v.y + Math.sin(v.angle + Math.PI / 2) * 30;
+  }
+
+  private fire(p: Player) {
+    const a = p.angle + rand(-0.04, 0.04);
+    this.bullets.push({
+      x: p.x + Math.cos(a) * 14,
+      y: p.y + Math.sin(a) * 14,
+      vx: Math.cos(a) * 820,
+      vy: Math.sin(a) * 820,
+      life: 0.7,
+      hostile: false,
+    });
+    this.particles.push({ x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,220,120,0.95)", size: 9 });
+    this.cams[p.id] && (this.cams[p.id].shake = Math.min(8, this.cams[p.id].shake + 4));
+    this.commitCrime();
   }
 
   private respawn(p: Player) {
     p.alive = true;
     p.health = 100;
-    p.ammo = 60;
+    p.ammo = 48;
     p.vehicle = null;
-    const gx = Math.floor(rand(1, GRID - 1));
-    const gy = Math.floor(rand(1, GRID - 1));
-    p.x = gx * CELL;
-    p.y = gy * CELL;
+    p.vx = 0;
+    p.vy = 0;
+    const spawn = this.block(0, 0);
+    p.x = spawn.x + BW / 2;
+    p.y = spawn.y + BH / 2;
+  }
+
+  private updatePeds(dt: number) {
+    for (const ped of this.peds) {
+      if (!ped.alive) continue;
+      if (Math.random() < 0.012) {
+        ped.vx = rand(-26, 26);
+        ped.vy = rand(-26, 26);
+      }
+      let nx = ped.x + ped.vx * dt;
+      let ny = ped.y + ped.vy * dt;
+      if (nx < ROAD * 0.5 || nx > WORLD_W - ROAD * 0.5) ped.vx *= -1, (nx = ped.x);
+      if (ny < ROAD * 0.5 || ny > WORLD_H - ROAD * 0.5) ped.vy *= -1, (ny = ped.y);
+      if (this.collides(nx, ny, 6)) {
+        ped.vx *= -1;
+        ped.vy *= -1;
+      } else {
+        ped.x = nx;
+        ped.y = ny;
+      }
+    }
   }
 
   private updateBullets(dt: number) {
@@ -514,7 +666,7 @@ export class Game {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
-      if (this.collidesBuilding(b.x, b.y, 2)) {
+      if (this.collides(b.x, b.y, 2)) {
         b.life = 0;
         this.spark(b.x, b.y);
         continue;
@@ -526,23 +678,23 @@ export class Game {
           const ty = p.vehicle ? p.vehicle.y : p.y;
           if (Math.hypot(b.x - tx, b.y - ty) < (p.vehicle ? 20 : 11)) {
             b.life = 0;
-            p.health -= p.vehicle ? 6 : 12;
+            p.health -= p.vehicle ? 5 : 11;
             this.spark(b.x, b.y);
+            this.cams[p.id] && (this.cams[p.id].shake = 5);
             if (p.health <= 0) this.downPlayer(p);
           }
         }
       } else {
-        for (const e of this.enemies) {
+        for (const e of this.cops) {
           if (!e.alive) continue;
           if (Math.hypot(b.x - e.x, b.y - e.y) < 12) {
             b.life = 0;
-            e.health -= 25;
-            this.spark(b.x, b.y);
+            e.health -= 34;
+            this.blood(e.x, e.y);
             if (e.health <= 0) {
               e.alive = false;
-              this.blood(e.x, e.y);
-              this.state.cash += e.cop ? 300 : 150;
-              this.state.score += e.cop ? 200 : 120;
+              this.state.cash += 200;
+              this.state.score += 150;
             }
           }
         }
@@ -552,8 +704,9 @@ export class Game {
             b.life = 0;
             ped.alive = false;
             this.blood(ped.x, ped.y);
-            this.bumpWanted(2);
-            setTimeout(() => Object.assign(ped, this.spawnPed()), 7000);
+            this.state.score += 20;
+            this.commitCrime();
+            setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
           }
         }
       }
@@ -566,37 +719,42 @@ export class Game {
     p.health = 0;
     this.blood(p.x, p.y);
     if (p.vehicle) {
-      p.vehicle.occupant = null;
+      p.vehicle.occupants = p.vehicle.occupants.filter((id) => id !== p.id);
       p.vehicle = null;
     }
-    p.respawnIn = this.mode === "coop" ? 5 : 999;
+    p.respawnIn = this.mode === "coop" ? 6 : 999;
   }
 
-  private updateEnemies(dt: number) {
-    this.enemyTimer -= dt;
-    const target = this.state.wanted * 2;
-    const live = this.enemies.filter((e) => e.alive).length;
-    if (this.state.wanted > 0 && live < target && this.enemyTimer <= 0) {
-      this.enemyTimer = 1.4;
+  private commitCrime() {
+    this.state.wanted = 1;
+    this.escapeTimer = 0;
+    if (this.copSpawnCd <= 0) this.copSpawnCd = rand(2, 4); // delayed first response = tension
+  }
+
+  // VERY simple 1-star police: spawn after a delay, follow nearest player,
+  // shoot occasionally. Escape by staying out of their sight for ~13s.
+  private updatePolice(dt: number) {
+    if (this.state.wanted === 0) {
+      this.cops = [];
+      return;
+    }
+
+    this.copSpawnCd -= dt;
+    const alive = this.cops.filter((c) => c.alive).length;
+    if (alive < 2 && this.copSpawnCd <= 0) {
+      this.copSpawnCd = rand(3, 5);
       const anchor = this.players.find((p) => p.alive) ?? this.players[0];
       const ang = rand(0, 6.28);
-      this.enemies.push({
-        x: anchor.x + Math.cos(ang) * 760,
-        y: anchor.y + Math.sin(ang) * 760,
-        angle: ang,
-        health: 40,
-        shootCd: rand(0.5, 1.5),
-        alive: true,
-        cop: true,
-      });
+      this.cops.push({ x: anchor.x + Math.cos(ang) * 720, y: anchor.y + Math.sin(ang) * 720, angle: ang, health: 50, shootCd: rand(0.8, 1.6), alive: true });
     }
-    if (this.state.wanted === 0) this.enemies.forEach((e) => (e.alive = false));
 
-    for (const e of this.enemies) {
+    const VISION = 560;
+    let seen = false;
+    for (const e of this.cops) {
       if (!e.alive) continue;
-      let tx = 0,
-        ty = 0,
-        bd = Infinity;
+      let tx = 0;
+      let ty = 0;
+      let bd = Infinity;
       for (const p of this.players) {
         if (!p.alive) continue;
         const px = p.vehicle ? p.vehicle.x : p.x;
@@ -609,26 +767,29 @@ export class Game {
         }
       }
       if (bd === Infinity) continue;
+      if (bd < VISION) seen = true;
       e.angle = Math.atan2(ty - e.y, tx - e.x);
-      if (bd > 300) {
-        e.x += Math.cos(e.angle) * 200 * dt;
-        e.y += Math.sin(e.angle) * 200 * dt;
+      if (bd > 200) {
+        e.x += Math.cos(e.angle) * 210 * dt;
+        e.y += Math.sin(e.angle) * 210 * dt;
       }
       e.shootCd -= dt;
-      if (bd < 420 && e.shootCd <= 0) {
-        e.shootCd = rand(0.9, 1.6);
+      if (bd < 460 && e.shootCd <= 0) {
+        e.shootCd = rand(1, 1.8);
         const a = e.angle + rand(-0.08, 0.08);
-        this.bullets.push({
-          x: e.x + Math.cos(a) * 12,
-          y: e.y + Math.sin(a) * 12,
-          vx: Math.cos(a) * 520,
-          vy: Math.sin(a) * 520,
-          life: 1,
-          hostile: true,
-        });
+        this.bullets.push({ x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 1, hostile: true });
       }
     }
-    this.enemies = this.enemies.filter((e) => e.alive);
+    this.cops = this.cops.filter((c) => c.alive);
+
+    // escape logic
+    if (seen) this.escapeTimer = 0;
+    else this.escapeTimer += dt;
+    if (this.escapeTimer > 13) {
+      this.state.wanted = 0;
+      this.cops = [];
+      this.escapeTimer = 0;
+    }
   }
 
   private updatePickups(dt: number) {
@@ -639,17 +800,13 @@ export class Game {
         if (!p.alive) continue;
         const px = p.vehicle ? p.vehicle.x : p.x;
         const py = p.vehicle ? p.vehicle.y : p.y;
-        if (Math.hypot(pk.x - px, pk.y - py) < 26) {
+        if (Math.hypot(pk.x - px, pk.y - py) < 28) {
           pk.taken = true;
-          if (pk.kind === "cash") {
-            this.state.cash += 250;
-            this.state.score += 100;
-          } else {
-            p.ammo = Math.min(180, p.ammo + 40);
-          }
+          this.state.cash += 150;
+          this.state.score += 50;
           setTimeout(() => {
-            pk.x = Math.floor(rand(0, GRID)) * CELL;
-            pk.y = Math.floor(rand(0, GRID)) * CELL;
+            pk.x = rand(ROAD, WORLD_W - ROAD);
+            pk.y = rand(ROAD, WORLD_H - ROAD);
             pk.taken = false;
           }, 5000);
           break;
@@ -682,12 +839,7 @@ export class Game {
     }
   }
 
-  private bumpWanted(by: number) {
-    this.state.wanted = Math.min(5, this.state.wanted + by);
-    this.wantedTimer = 14;
-  }
-
-  // ---------- RENDER ----------
+  // ---- render ------------------------------------------------------------
   private render() {
     const ctx = this.ctx;
     const W = this.canvas.width;
@@ -695,7 +847,13 @@ export class Game {
     ctx.fillStyle = "#0c0f17";
     ctx.fillRect(0, 0, W, H);
 
-    if (this.mode === "coop") {
+    // both players in the SAME vehicle -> single shared full-screen view
+    const shared =
+      this.mode === "coop" &&
+      this.players[0]?.vehicle &&
+      this.players[0].vehicle === this.players[1]?.vehicle;
+
+    if (this.mode === "coop" && !shared) {
       const half = W / 2;
       this.renderView(0, 0, half - 1, H, this.cams[0], 0);
       this.renderView(half + 1, 0, half - 1, H, this.cams[1], 1);
@@ -706,48 +864,68 @@ export class Game {
     }
   }
 
-  private renderView(vx: number, vy: number, vw: number, vh: number, cam: { x: number; y: number }, viewIndex: number) {
+  private renderView(vx: number, vy: number, vw: number, vh: number, cam: { x: number; y: number; shake: number }, viewIndex: number) {
     const ctx = this.ctx;
     ctx.save();
     ctx.beginPath();
     ctx.rect(vx, vy, vw, vh);
     ctx.clip();
-    ctx.fillStyle = "#171c28";
+    // base ground (dusty earth)
+    ctx.fillStyle = "#6f6a4f";
     ctx.fillRect(vx, vy, vw, vh);
-    ctx.translate(vx + vw / 2 - cam.x, vy + vh / 2 - cam.y);
 
-    // roads grid markings
-    ctx.strokeStyle = "rgba(240,200,120,0.16)";
+    const sx = cam.shake ? rand(-cam.shake, cam.shake) : 0;
+    const sy = cam.shake ? rand(-cam.shake, cam.shake) : 0;
+    ctx.translate(vx + vw / 2 - cam.x + sx, vy + vh / 2 - cam.y + sy);
+
+    // parks (grass) under roads
+    for (const pk of this.parks) {
+      ctx.fillStyle = "#5f8d4e";
+      ctx.fillRect(pk.x, pk.y, pk.w, pk.h);
+      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      ctx.strokeRect(pk.x, pk.y, pk.w, pk.h);
+    }
+
+    // roads
+    for (const r of this.roads) {
+      ctx.fillStyle = r.highway ? "#3c3f47" : "#43464e";
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
+    // road centre markings
+    ctx.strokeStyle = "rgba(240,210,120,0.55)";
     ctx.lineWidth = 3;
-    ctx.setLineDash([22, 26]);
-    for (let i = 0; i <= GRID; i++) {
-      const p = i * CELL;
+    ctx.setLineDash([26, 24]);
+    for (const r of this.roads) {
       ctx.beginPath();
-      ctx.moveTo(p, 0);
-      ctx.lineTo(p, WORLD);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, p);
-      ctx.lineTo(WORLD, p);
+      if (r.horizontal) {
+        ctx.moveTo(r.x, r.y + r.h / 2);
+        ctx.lineTo(r.x + r.w, r.y + r.h / 2);
+      } else {
+        ctx.moveTo(r.x + r.w / 2, r.y);
+        ctx.lineTo(r.x + r.w / 2, r.y + r.h);
+      }
       ctx.stroke();
     }
     ctx.setLineDash([]);
 
-    // buildings with drop shadow + roof
-    for (const b of this.buildings) {
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.fillRect(b.x + 8, b.y + 12, b.w, b.h);
-      ctx.fillStyle = b.color;
-      ctx.fillRect(b.x, b.y, b.w, b.h);
-      ctx.fillStyle = b.roof;
-      ctx.fillRect(b.x + 14, b.y + 14, b.w - 28, b.h - 28);
-      ctx.fillStyle = "rgba(255,235,170,0.10)";
-      for (let wx = b.x + 16; wx < b.x + b.w - 12; wx += 46)
-        for (let wy = b.y + 16; wy < b.y + b.h - 12; wy += 46) ctx.fillRect(wx, wy, 18, 18);
-      ctx.strokeStyle = "rgba(0,0,0,0.45)";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(b.x, b.y, b.w, b.h);
+    // trees
+    for (const t of this.trees) {
+      ctx.fillStyle = "rgba(0,0,0,0.25)";
+      ctx.beginPath();
+      ctx.arc(t.x + 3, t.y + 4, t.r, 0, 6.28);
+      ctx.fill();
+      ctx.fillStyle = "#3c6b34";
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.r, 0, 6.28);
+      ctx.fill();
+      ctx.fillStyle = "#4d8341";
+      ctx.beginPath();
+      ctx.arc(t.x - t.r * 0.25, t.y - t.r * 0.25, t.r * 0.6, 0, 6.28);
+      ctx.fill();
     }
+
+    // buildings
+    for (const b of this.buildings) this.drawBuilding(ctx, b);
 
     // pickups
     for (const pk of this.pickups) {
@@ -756,24 +934,23 @@ export class Game {
       ctx.save();
       ctx.translate(pk.x, pk.y);
       ctx.scale(s, s);
-      const cash = pk.kind === "cash";
-      ctx.shadowColor = cash ? "rgba(120,220,140,0.9)" : "rgba(120,180,255,0.9)";
-      ctx.shadowBlur = 16;
-      ctx.fillStyle = cash ? "#3fcf6a" : "#4a92ff";
+      ctx.shadowColor = "rgba(120,220,140,0.9)";
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = "#3fcf6a";
       ctx.fillRect(-12, -8, 24, 16);
       ctx.shadowBlur = 0;
-      ctx.fillStyle = cash ? "#0c3a1c" : "#0b1f44";
+      ctx.fillStyle = "#0c3a1c";
       ctx.font = "bold 13px sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(cash ? "$" : "⁌", 0, 1);
+      ctx.fillText("₹", 0, 1);
       ctx.restore();
     }
 
     // peds
     for (const ped of this.peds) {
       if (!ped.alive) continue;
-      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
       ctx.beginPath();
       ctx.arc(ped.x + 2, ped.y + 3, 6, 0, 6.28);
       ctx.fill();
@@ -783,37 +960,38 @@ export class Game {
       ctx.fill();
     }
 
-    // parked / driven vehicles
-    for (const v of this.vehicles) this.drawCar(ctx, v.x, v.y, v.angle, v.color, false, Math.abs(v.speed) > 30);
+    // parked / empty vehicles
+    for (const v of this.vehicles) if (v.occupants.length === 0) this.drawVehicle(ctx, v, false);
 
-    // enemies
-    for (const e of this.enemies) {
+    // cops
+    for (const e of this.cops) {
       if (!e.alive) continue;
       this.drawPerson(ctx, e.x, e.y, e.angle, "#2d54c8", true);
     }
 
-    // players (on foot)
+    // players on foot
     this.players.forEach((p, i) => {
-      if (p.vehicle) return;
-      if (!p.alive) return;
+      if (p.vehicle || !p.alive) return;
       this.drawPerson(ctx, p.x, p.y, p.angle, p.color, false);
-      // name tag
       ctx.fillStyle = p.color;
       ctx.font = "bold 11px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(`P${i + 1}`, p.x, p.y - 16);
+      if (this.mode === "coop") ctx.fillText(`P${i + 1}`, p.x, p.y - 18);
     });
-    // players in cars already drawn via vehicles list (occupant), tag them
-    this.players.forEach((p, i) => {
-      if (!p.vehicle) return;
-      this.drawCar(ctx, p.vehicle.x, p.vehicle.y, p.vehicle.angle, p.color, true, Math.abs(p.vehicle.speed) > 30);
-      ctx.fillStyle = p.color;
-      ctx.font = "bold 11px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(`P${i + 1}`, p.vehicle.x, p.vehicle.y - 24);
-    });
+    // occupied vehicles (drawn in the driver's colour)
+    for (const v of this.vehicles) {
+      if (v.occupants.length === 0) continue;
+      const driver = this.players[v.occupants[0]];
+      this.drawVehicle(ctx, v, true, driver?.color);
+      if (this.mode === "coop") {
+        ctx.fillStyle = driver?.color ?? "#fff";
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(v.occupants.map((id) => `P${id + 1}`).join("+"), v.x, v.y - 26);
+      }
+    }
 
-    // bullets + particles (glow)
+    // bullets + particles
     for (const b of this.bullets) {
       ctx.shadowColor = b.hostile ? "rgba(255,90,90,0.9)" : "rgba(255,230,140,0.95)";
       ctx.shadowBlur = 8;
@@ -832,17 +1010,52 @@ export class Game {
 
     ctx.restore();
 
-    // vignette per view
-    const g = ctx.createRadialGradient(vx + vw / 2, vy + vh / 2, Math.min(vw, vh) * 0.3, vx + vw / 2, vy + vh / 2, Math.max(vw, vh) * 0.75);
+    // vignette
+    const g = ctx.createRadialGradient(vx + vw / 2, vy + vh / 2, Math.min(vw, vh) * 0.35, vx + vw / 2, vy + vh / 2, Math.max(vw, vh) * 0.75);
     g.addColorStop(0, "rgba(0,0,0,0)");
-    g.addColorStop(1, "rgba(0,0,0,0.55)");
+    g.addColorStop(1, "rgba(0,0,0,0.4)");
     ctx.fillStyle = g;
     ctx.fillRect(vx, vy, vw, vh);
 
-    // minimap (in-canvas) — push to outer corner so it clears the centered HUD
+    // minimap bottom-left (solo / view0) or bottom-right (coop view1)
+    const size = 132;
     const mmRight = this.mode === "coop" && viewIndex === 1;
-    const mmx = mmRight ? vx + vw - 116 : vx + 12;
-    this.drawMinimap(mmx, vy + 12, 104, viewIndex);
+    const mmx = mmRight ? vx + vw - size - 14 : vx + 14;
+    const mmy = vy + vh - size - 14;
+    this.drawMinimap(mmx, mmy, size, viewIndex);
+  }
+
+  private drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(b.x + 7, b.y + 10, b.w, b.h);
+    ctx.fillStyle = b.wall;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+
+    if (b.kind === "house") {
+      // terracotta roof inset
+      ctx.fillStyle = b.roof;
+      ctx.fillRect(b.x + 6, b.y + 6, b.w - 12, b.h - 12);
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(b.x + b.w / 2 - 1, b.y + 6, 2, b.h - 12);
+    } else if (b.kind === "shop") {
+      // colourful awning strip along the front
+      ctx.fillStyle = b.roof;
+      ctx.fillRect(b.x, b.y + b.h - 16, b.w, 16);
+      ctx.fillStyle = "rgba(255,255,255,0.25)";
+      for (let sx = b.x; sx < b.x + b.w; sx += 18) ctx.fillRect(sx, b.y + b.h - 16, 9, 16);
+      ctx.fillStyle = "rgba(255,235,170,0.18)";
+      ctx.fillRect(b.x + 8, b.y + 8, b.w - 16, b.h - 30);
+    } else {
+      // office windows grid
+      ctx.fillStyle = b.roof;
+      ctx.fillRect(b.x + 5, b.y + 5, b.w - 10, b.h - 10);
+      ctx.fillStyle = "rgba(180,220,255,0.16)";
+      for (let wx = b.x + 14; wx < b.x + b.w - 14; wx += 34)
+        for (let wy = b.y + 14; wy < b.y + b.h - 14; wy += 40) ctx.fillRect(wx, wy, 18, 24);
+    }
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
   }
 
   private drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, color: string, enemy: boolean) {
@@ -853,15 +1066,12 @@ export class Game {
     ctx.arc(2, 3, 9, 0, 6.28);
     ctx.fill();
     ctx.rotate(angle);
-    // gun
     ctx.fillStyle = "#1a1a22";
-    ctx.fillRect(6, -2, 14, 4);
-    // body
+    ctx.fillRect(6, -2, 14, 4); // gun
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(0, 0, 8, 0, 6.28);
     ctx.fill();
-    // head
     ctx.fillStyle = enemy ? "#dfe6f5" : "#f0d6c2";
     ctx.beginPath();
     ctx.arc(3, 0, 4, 0, 6.28);
@@ -869,36 +1079,41 @@ export class Game {
     ctx.restore();
   }
 
-  private drawCar(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, color: string, player: boolean, moving: boolean) {
+  private drawVehicle(ctx: CanvasRenderingContext2D, v: Vehicle, occupied: boolean, tint?: string) {
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    // headlights cone
+    ctx.translate(v.x, v.y);
+    ctx.rotate(v.angle);
+    const moving = Math.abs(v.speed) > 30;
     if (moving) {
       const lg = ctx.createLinearGradient(20, 0, 120, 0);
-      lg.addColorStop(0, "rgba(255,245,200,0.35)");
+      lg.addColorStop(0, "rgba(255,245,200,0.3)");
       lg.addColorStop(1, "rgba(255,245,200,0)");
       ctx.fillStyle = lg;
       ctx.beginPath();
-      ctx.moveTo(18, -10);
-      ctx.lineTo(120, -40);
-      ctx.lineTo(120, 40);
-      ctx.lineTo(18, 10);
+      ctx.moveTo(16, -8);
+      ctx.lineTo(120, -34);
+      ctx.lineTo(120, 34);
+      ctx.lineTo(16, 8);
       ctx.closePath();
       ctx.fill();
     }
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
-    ctx.fillRect(-19, -10, 40, 24);
-    ctx.fillStyle = color;
-    ctx.fillRect(-20, -12, 40, 24);
-    ctx.fillStyle = "rgba(0,0,0,0.22)";
-    ctx.fillRect(-12, -10, 14, 20);
-    ctx.fillStyle = "rgba(180,220,255,0.75)";
-    ctx.fillRect(4, -9, 8, 18);
-    if (player) {
-      ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillRect(18, -9, 3, 4);
-      ctx.fillRect(18, 5, 3, 4);
+    if (v.type === "bike") {
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(-13, -5, 26, 11);
+      ctx.fillStyle = occupied && tint ? tint : v.color;
+      ctx.fillRect(-14, -6, 26, 11);
+      ctx.fillStyle = "#101015";
+      ctx.fillRect(-15, -7, 5, 14); // back wheel
+      ctx.fillRect(11, -7, 5, 14); // front wheel
+    } else {
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(-19, -11, 40, 24);
+      ctx.fillStyle = occupied && tint ? tint : v.color;
+      ctx.fillRect(-20, -12, 40, 24);
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      ctx.fillRect(-12, -10, 14, 20);
+      ctx.fillStyle = "rgba(180,220,255,0.75)";
+      ctx.fillRect(4, -9, 8, 18);
     }
     ctx.restore();
   }
@@ -907,18 +1122,25 @@ export class Game {
     const ctx = this.ctx;
     const scale = size / WORLD;
     ctx.save();
-    ctx.globalAlpha = 0.92;
-    ctx.fillStyle = "#0a0d15";
+    ctx.globalAlpha = 0.94;
+    ctx.fillStyle = "#10131c";
     ctx.fillRect(mx, my, size, size);
-    ctx.strokeStyle = "rgba(240,200,120,0.6)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(mx, my, size, size);
-    ctx.fillStyle = "#222a3c";
+    // roads
+    ctx.fillStyle = "#3a3d45";
+    for (const r of this.roads) ctx.fillRect(mx + r.x * scale, my + r.y * scale, Math.max(1, r.w * scale), Math.max(1, r.h * scale));
+    // buildings
+    ctx.fillStyle = "#2a3040";
     for (const b of this.buildings) ctx.fillRect(mx + b.x * scale, my + b.y * scale, b.w * scale, b.h * scale);
+    // parks
+    ctx.fillStyle = "#3f5e34";
+    for (const pk of this.parks) ctx.fillRect(mx + pk.x * scale, my + pk.y * scale, pk.w * scale, pk.h * scale);
+    // cash
     ctx.fillStyle = "#3fcf6a";
-    for (const pk of this.pickups) if (!pk.taken && pk.kind === "cash") ctx.fillRect(mx + pk.x * scale - 1, my + pk.y * scale - 1, 2, 2);
-    ctx.fillStyle = "#2d54c8";
-    for (const e of this.enemies) if (e.alive) ctx.fillRect(mx + e.x * scale - 1, my + e.y * scale - 1, 2, 2);
+    for (const pk of this.pickups) if (!pk.taken) ctx.fillRect(mx + pk.x * scale - 1, my + pk.y * scale - 1, 2, 2);
+    // cops
+    ctx.fillStyle = "#3a6bff";
+    for (const e of this.cops) if (e.alive) ctx.fillRect(mx + e.x * scale - 1, my + e.y * scale - 1, 3, 3);
+    // players
     this.players.forEach((p, i) => {
       ctx.fillStyle = i === viewIndex ? "#ffffff" : p.color;
       const px = p.vehicle ? p.vehicle.x : p.x;
@@ -927,6 +1149,9 @@ export class Game {
       ctx.arc(mx + px * scale, my + py * scale, 3, 0, 6.28);
       ctx.fill();
     });
+    ctx.strokeStyle = "rgba(240,200,120,0.7)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mx, my, size, size);
     ctx.restore();
   }
 }
