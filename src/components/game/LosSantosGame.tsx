@@ -153,33 +153,42 @@ export default function LosSantosGame() {
 }
 
 function PlayerPanel({ index, hud, coop }: { index: number; hud: PlayerHud; coop: boolean }) {
-  const side = index === 0 ? "left-4" : "right-4";
-  const accent = index === 0 ? "#ff6b6b" : "#39b6ff";
+  // P1 top-left; in co-op P2 top-right (below the money panel it never overlaps).
+  const side = index === 0 ? "left-4 items-start" : "right-4 items-end top-28";
+  const top = index === 0 ? "top-4" : "top-28";
+  const accent = index === 0 ? "#ff4d4d" : "#39b6ff";
   return (
-    <div className={`pointer-events-none absolute bottom-4 ${side} z-10 w-56`}>
-      <div className="rounded-md border border-border bg-card/85 p-3 backdrop-blur">
+    <div className={`pointer-events-none absolute ${index === 0 ? "left-4" : "right-4"} ${top} z-10 flex w-52 flex-col ${index === 0 ? "items-start" : "items-end"}`}>
+      <div className="w-full rounded-sm bg-black/50 px-3 py-2 backdrop-blur-sm">
         <div className="mb-1 flex items-center justify-between">
-          <span className="font-display text-sm uppercase tracking-wider" style={{ color: accent }}>
-            {coop ? `Player ${index + 1}` : "You"}
+          <span className="font-display text-xs uppercase tracking-wider" style={{ color: accent }}>
+            {coop ? `Player ${index + 1}` : "Health"}
           </span>
-          <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-widest text-white/55">
             {hud.onFoot ? "on foot" : `${hud.speedKmh} km/h`}
           </span>
         </div>
         {hud.alive ? (
           <>
-            <div className="h-2.5 w-full overflow-hidden rounded-full border border-border bg-secondary">
-              <div
-                className="h-full transition-all duration-150"
-                style={{ width: `${hud.health}%`, background: hud.health > 40 ? "var(--neon-cyan)" : "var(--destructive)" }}
-              />
+            {/* segmented GTA-style health bar */}
+            <div className="flex h-2.5 w-full gap-0.5">
+              {Array.from({ length: 10 }).map((_, i) => {
+                const filled = hud.health > i * 10;
+                return (
+                  <div
+                    key={i}
+                    className="h-full flex-1 transition-colors"
+                    style={{ background: filled ? (hud.health > 40 ? "#41d67e" : "#e23b3b") : "rgba(255,255,255,0.12)" }}
+                  />
+                );
+              })}
             </div>
-            <p className="mt-1.5 text-[11px] uppercase tracking-widest text-muted-foreground">
-              Ammo <span className="text-foreground">{hud.ammo}</span>
+            <p className="mt-1.5 text-[10px] uppercase tracking-widest text-white/55">
+              Ammo <span className="text-white">{hud.ammo}</span>
             </p>
           </>
         ) : (
-          <p className="font-display text-sm uppercase text-destructive">
+          <p className="font-display text-sm uppercase text-[#e23b3b]">
             {coop ? `Down — respawn ${hud.respawnIn}s` : "Wasted"}
           </p>
         )}
