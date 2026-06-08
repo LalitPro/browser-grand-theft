@@ -113,16 +113,17 @@ export default function LosSantosGame() {
             {screen === "over" ? (
               <div className="mt-5">
                 <p className="font-display text-2xl uppercase text-destructive">Wasted</p>
-                <p className="mt-2 text-muted-foreground">
-                  Payday: <span className="text-primary">${state.cash.toLocaleString()}</span> · Score:{" "}
+                 <p className="mt-2 text-muted-foreground">
+                   Payday: <span className="text-primary">₹{state.cash.toLocaleString("en-IN")}</span> · Score:{" "}
                   <span className="text-foreground">{state.score}</span>
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">Best run: {best}</p>
               </div>
             ) : (
               <p className="mx-auto mt-4 max-w-md text-muted-foreground">
-                Steal cars, shoot it out, grab the cash and outrun the cops. Play solo or grab a friend for
-                split-screen local co-op.
+                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off a crime to
+                trigger a 1-star police chase — then lose them. Play solo or grab a friend for split-screen
+                co-op (you can even share the same car).
               </p>
             )}
 
