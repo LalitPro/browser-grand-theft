@@ -691,17 +691,21 @@ export class Game {
     p.y = v.y + Math.sin(v.angle + Math.PI / 2) * 30;
   }
 
-  private fire(p: Player) {
-    const a = p.angle + rand(-0.04, 0.04);
-    this.bullets.push({
-      x: p.x + Math.cos(a) * 14,
-      y: p.y + Math.sin(a) * 14,
-      vx: Math.cos(a) * 820,
-      vy: Math.sin(a) * 820,
-      life: 0.7,
-      hostile: false,
-    });
-    this.particles.push({ x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,220,120,0.95)", size: 9 });
+  private fire(p: Player, w: WeaponDef) {
+    for (let i = 0; i < w.pellets; i++) {
+      const a = p.angle + rand(-w.spread, w.spread);
+      this.bullets.push({
+        x: p.x + Math.cos(a) * 14,
+        y: p.y + Math.sin(a) * 14,
+        vx: Math.cos(a) * w.speed,
+        vy: Math.sin(a) * w.speed,
+        life: 0.7,
+        hostile: false,
+        owner: p.id,
+        dmg: w.damage,
+      });
+    }
+    this.particles.push({ x: p.x + Math.cos(p.angle) * 16, y: p.y + Math.sin(p.angle) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,220,120,0.95)", size: 9 });
     this.cams[p.id] && (this.cams[p.id].shake = Math.min(8, this.cams[p.id].shake + 4));
     this.commitCrime();
   }
@@ -709,7 +713,7 @@ export class Game {
   private respawn(p: Player) {
     p.alive = true;
     p.health = 100;
-    p.ammo = 48;
+    p.ammo[this.curWeaponId(p)] = Math.max(p.ammo[this.curWeaponId(p)], WEAPONS.pistol.ammoPack);
     p.vehicle = null;
     p.vx = 0;
     p.vy = 0;
