@@ -292,6 +292,10 @@ export class Game {
       this.pickups.push({ x: rand(ROAD, WORLD_W - ROAD), y: rand(ROAD, WORLD_H - ROAD), taken: false, pulse: rand(0, 6.28) });
     }
 
+    // gun shop (Ammu-Nation) sits on a road corner near the spawn block
+    const shopBlk = this.block(1, 0);
+    this.shop = { x: shopBlk.x - ROAD / 2, y: shopBlk.y + BH / 2, r: 72 };
+
     // dummy pedestrians
     this.peds = [];
     for (let i = 0; i < 26; i++) this.peds.push(this.spawnPed());
