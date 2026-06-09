@@ -492,6 +492,7 @@ export class Game {
         right: this.keys["KeyD"],
         shoot: this.keys["KeyF"] || this.keys["Space"],
         enter: this.keys["KeyE"],
+        swap: this.keys["KeyQ"],
       };
     return {
       up: this.keys["ArrowUp"],
@@ -500,6 +501,7 @@ export class Game {
       right: this.keys["ArrowRight"],
       shoot: this.keys["Slash"],
       enter: this.keys["Enter"] || this.keys["NumpadEnter"],
+      swap: this.keys["ShiftRight"] || this.keys["Period"],
     };
   }
 
@@ -573,15 +575,27 @@ export class Game {
     if (sp > 6) p.angle = Math.atan2(p.vy, p.vx);
     p.walkPhase += sp * dt * 0.05;
 
+    // near the gun shop?
+    p.nearShop = Math.hypot(p.x - this.shop.x, p.y - this.shop.y) < this.shop.r;
+
+    // cycle weapon
+    p.switchCd -= dt;
+    if (c.swap && p.switchCd <= 0 && p.weapons.length > 1) {
+      p.switchCd = 0.3;
+      p.weaponIndex = (p.weaponIndex + 1) % p.weapons.length;
+    }
+
     if (c.enter && p.enterCd <= 0) {
       p.enterCd = 0.45;
       this.tryEnter(p);
     }
 
-    if (c.shoot && p.shootCd <= 0 && p.ammo > 0) {
-      p.shootCd = 0.17;
-      p.ammo--;
-      this.fire(p);
+    const w = this.curWeapon(p);
+    const wid = this.curWeaponId(p);
+    if (c.shoot && p.shootCd <= 0 && p.ammo[wid] > 0) {
+      p.shootCd = w.cd;
+      p.ammo[wid]--;
+      this.fire(p, w);
     }
   }
 
