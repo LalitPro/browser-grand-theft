@@ -184,6 +184,18 @@ export default function LosSantosGame() {
               </button>
             </div>
 
+            <label className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={pvp}
+                onChange={(e) => setPvp(e.target.checked)}
+                className="h-4 w-4 accent-[var(--accent)]"
+              />
+              <span>
+                <span className="font-display uppercase tracking-wider text-accent">PvP</span> friendly fire (co-op) — players can shoot each other
+              </span>
+            </label>
+
             <div className="mt-8 grid gap-3 text-left sm:grid-cols-2">
               <ControlCard player={1} color="text-[#ff6b6b]" rows={[["Move", "W A S D"], ["Shoot", "F / Space"], ["Enter / exit car", "E"]]} />
               <ControlCard player={2} color="text-[#39b6ff]" rows={[["Move", "Arrow keys"], ["Shoot", "/"], ["Enter / exit car", "Enter"]]} />
