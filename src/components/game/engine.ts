@@ -870,14 +870,27 @@ export class Game {
       if (bd < VISION) seen = true;
       e.angle = Math.atan2(ty - e.y, tx - e.x);
       if (bd > 200) {
-        e.x += Math.cos(e.angle) * 210 * dt;
-        e.y += Math.sin(e.angle) * 210 * dt;
+        // move toward the target but slide along building walls (no clipping through)
+        const step = 210 * dt;
+        const nx = e.x + Math.cos(e.angle) * step;
+        const ny = e.y + Math.sin(e.angle) * step;
+        if (!this.collides(nx, e.y, 11)) e.x = nx;
+        else {
+          // try sliding perpendicular to get around the building
+          const sy = e.y + Math.sin(e.angle + Math.PI / 2) * step;
+          if (!this.collides(e.x, sy, 11)) e.y = sy;
+        }
+        if (!this.collides(e.x, ny, 11)) e.y = ny;
+        else {
+          const sx = e.x + Math.cos(e.angle + Math.PI / 2) * step;
+          if (!this.collides(sx, e.y, 11)) e.x = sx;
+        }
       }
       e.shootCd -= dt;
       if (bd < 460 && e.shootCd <= 0) {
         e.shootCd = rand(1, 1.8);
         const a = e.angle + rand(-0.08, 0.08);
-        this.bullets.push({ x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 1, hostile: true });
+        this.bullets.push({ x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 1, hostile: true, owner: -1, dmg: 11 });
       }
     }
     this.cops = this.cops.filter((c) => c.alive);
