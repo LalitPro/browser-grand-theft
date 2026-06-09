@@ -208,6 +208,92 @@ export default function LosSantosGame() {
 }
 
 function PlayerPanel({ index, hud, coop }: { index: number; hud: PlayerHud; coop: boolean }) {
+  return <PlayerPanelInner index={index} hud={hud} coop={coop} />;
+}
+
+function ShopPanel({
+  cash,
+  shoppers,
+  coop,
+  onBuyWeapon,
+  onBuyAmmo,
+}: {
+  cash: number;
+  shoppers: { p: PlayerHud; i: number }[];
+  coop: boolean;
+  onBuyWeapon: (id: WeaponId, playerIndex?: number) => void;
+  onBuyAmmo: (id: WeaponId, playerIndex?: number) => void;
+}) {
+  // In co-op the buyer is chosen; in solo it's always player 0.
+  const [buyer, setBuyer] = useState(shoppers[0].i);
+  const target = shoppers.find((s) => s.i === buyer) ?? shoppers[0];
+  const hud = target.p;
+  return (
+    <div className="absolute left-1/2 top-20 z-30 w-[340px] -translate-x-1/2 rounded-lg border border-accent/50 bg-black/80 p-4 backdrop-blur-md shadow-[var(--shadow-pink)]">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-display text-xl uppercase tracking-wider text-accent">Gun Shop</h2>
+        <span className="font-display text-lg text-[#7bd88f]">₹{cash.toLocaleString("en-IN")}</span>
+      </div>
+
+      {coop && shoppers.length > 1 && (
+        <div className="mb-3 flex gap-2">
+          {shoppers.map((s) => (
+            <button
+              key={s.i}
+              onClick={() => setBuyer(s.i)}
+              className={`flex-1 rounded px-2 py-1 text-xs font-display uppercase tracking-wider ${
+                s.i === buyer ? "bg-accent text-accent-foreground" : "bg-white/10 text-white/70"
+              }`}
+            >
+              Player {s.i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {WEAPON_ORDER.map((id) => {
+          const w = WEAPONS[id];
+          const owned = hud.owned.includes(id);
+          const canBuyGun = !owned && cash >= w.price;
+          const canBuyAmmo = owned && cash >= w.ammoPrice;
+          return (
+            <div key={id} className="flex items-center justify-between rounded bg-white/5 px-3 py-2">
+              <div className="flex flex-col">
+                <span className="font-display text-sm uppercase tracking-wider text-white">{w.name}</span>
+                <span className="text-[10px] uppercase tracking-widest text-white/45">
+                  {w.pellets > 1 ? `${w.pellets}x pellets` : "single"} · dmg {w.damage}
+                </span>
+              </div>
+              {owned ? (
+                <button
+                  onClick={() => onBuyAmmo(id, coop ? buyer : undefined)}
+                  disabled={!canBuyAmmo}
+                  className="rounded bg-primary/90 px-3 py-1.5 text-xs font-display uppercase tracking-wider text-primary-foreground disabled:opacity-40"
+                >
+                  +{w.ammoPack} ammo · ₹{w.ammoPrice}
+                </button>
+              ) : (
+                <button
+                  onClick={() => onBuyWeapon(id, coop ? buyer : undefined)}
+                  disabled={!canBuyGun}
+                  className="rounded bg-accent px-3 py-1.5 text-xs font-display uppercase tracking-wider text-accent-foreground disabled:opacity-40"
+                >
+                  Buy · ₹{w.price.toLocaleString("en-IN")}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-center text-[10px] uppercase tracking-widest text-white/40">
+        Walk off the pad to close · Q / ⇧ to swap weapon
+      </p>
+    </div>
+  );
+}
+
+function PlayerPanelInner({ index, hud, coop }: { index: number; hud: PlayerHud; coop: boolean }) {
   // P1 top-left; in co-op P2 top-right (below the money panel so it never overlaps).
   const top = index === 0 ? "top-4" : "top-28";
   const accent = index === 0 ? "#ff4d4d" : "#39b6ff";
