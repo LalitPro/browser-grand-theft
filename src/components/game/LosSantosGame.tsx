@@ -238,7 +238,7 @@ function PlayerPanel({ index, hud, coop }: { index: number; hud: PlayerHud; coop
               })}
             </div>
             <p className="mt-1.5 text-[10px] uppercase tracking-widest text-white/55">
-              Ammo <span className="text-white">{hud.ammo}</span>
+              <span className="text-white/80">{hud.weapon}</span> · Ammo <span className="text-white">{hud.ammo}</span>
             </p>
           </>
         ) : (
