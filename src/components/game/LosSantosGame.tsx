@@ -120,10 +120,23 @@ export default function LosSantosGame() {
             <PlayerPanel key={i} index={i} hud={p} coop={state.mode === "coop"} />
           ))}
 
+          {/* gun shop panel — appears when a player stands on the shop pad */}
+          {shoppers.length > 0 && (
+            <ShopPanel
+              cash={state.cash}
+              shoppers={shoppers}
+              coop={state.mode === "coop"}
+              onBuyWeapon={buyWeapon}
+              onBuyAmmo={buyAmmo}
+            />
+          )}
+
           {/* controls hint */}
           <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-sm bg-black/40 px-3 py-1.5 text-right backdrop-blur-sm">
             <p className="text-[11px] uppercase tracking-widest text-white/60">
-              {state.mode === "coop" ? "P1 WASD · F · E   |   P2 Arrows · / · Enter" : "WASD move · F shoot · E car"}
+              {state.mode === "coop"
+                ? "P1 WASD · F · E · Q swap   |   P2 Arrows · / · Enter · ⇧ swap"
+                : "WASD move · F shoot · E car · Q swap gun"}
             </p>
           </div>
         </>
