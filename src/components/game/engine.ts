@@ -438,6 +438,14 @@ export class Game {
     this.keys[code] = down;
   }
 
+  private curWeaponId(p: Player): WeaponId {
+    return p.weapons[p.weaponIndex] ?? "pistol";
+  }
+
+  private curWeapon(p: Player): WeaponDef {
+    return WEAPONS[this.curWeaponId(p)];
+  }
+
   private emit() {
     this.state.players.forEach((h, i) => {
       const p = this.players[i];
@@ -446,7 +454,12 @@ export class Game {
       h.onFoot = !p.vehicle;
       h.alive = p.alive;
       h.respawnIn = Math.ceil(p.respawnIn);
-      h.ammo = p.ammo;
+      const wid = this.curWeaponId(p);
+      h.ammo = p.ammo[wid];
+      h.weapon = WEAPONS[wid].name;
+      h.weaponId = wid;
+      h.owned = [...p.weapons];
+      h.nearShop = p.nearShop;
       h.speedKmh = p.vehicle ? Math.round(Math.abs(p.vehicle.speed) / 3.2) : 0;
     });
     this.listener({ ...this.state, players: this.state.players.map((p) => ({ ...p })) });
