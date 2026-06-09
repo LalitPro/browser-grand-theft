@@ -219,6 +219,8 @@ export class Game {
 
   private copSpawnCd = 0;
   private escapeTimer = 0; // seconds out of police sight
+  private pvp = false;
+  private shop = { x: 0, y: 0, r: 70 };
 
   state: GameState = this.blankState("solo");
 
@@ -241,10 +243,15 @@ export class Game {
         onFoot: true,
         alive: true,
         respawnIn: 0,
-        ammo: 48,
+        ammo: WEAPONS.pistol.ammoPack,
+        weapon: WEAPONS.pistol.name,
+        weaponId: "pistol" as WeaponId,
+        owned: ["pistol"] as WeaponId[],
+        nearShop: false,
       })),
       running: false,
       gameOver: false,
+      pvp: false,
     };
   }
 
