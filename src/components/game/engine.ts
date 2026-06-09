@@ -1319,6 +1319,9 @@ export class Game {
     // cash
     ctx.fillStyle = "#3fcf6a";
     for (const pk of this.pickups) if (!pk.taken) ctx.fillRect(mx + pk.x * scale - 1, my + pk.y * scale - 1, 2, 2);
+    // gun shop
+    ctx.fillStyle = "#ffc450";
+    ctx.fillRect(mx + this.shop.x * scale - 2, my + this.shop.y * scale - 2, 4, 4);
     // cops
     ctx.fillStyle = "#3a6bff";
     for (const e of this.cops) if (e.alive) ctx.fillRect(mx + e.x * scale - 1, my + e.y * scale - 1, 3, 3);
