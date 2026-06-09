@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Game, type GameState, type Mode, type PlayerHud } from "./engine";
+import { Game, WEAPONS, WEAPON_ORDER, type GameState, type Mode, type PlayerHud, type WeaponId } from "./engine";
 
 const INITIAL: GameState = {
   mode: "solo",
   cash: 0,
   wanted: 0,
   score: 0,
-  players: [{ health: 100, speedKmh: 0, onFoot: true, alive: true, respawnIn: 0, ammo: 48 }],
+  players: [
+    {
+      health: 100,
+      speedKmh: 0,
+      onFoot: true,
+      alive: true,
+      respawnIn: 0,
+      ammo: WEAPONS.pistol.ammoPack,
+      weapon: WEAPONS.pistol.name,
+      weaponId: "pistol",
+      owned: ["pistol"],
+      nearShop: false,
+    },
+  ],
   running: false,
   gameOver: false,
+  pvp: false,
 };
 
 type Screen = "menu" | "playing" | "over";
@@ -19,6 +33,7 @@ export default function LosSantosGame() {
   const [state, setState] = useState<GameState>(INITIAL);
   const [screen, setScreen] = useState<Screen>("menu");
   const [best, setBest] = useState(0);
+  const [pvp, setPvp] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -57,10 +72,24 @@ export default function LosSantosGame() {
     };
   }, []);
 
-  const startGame = useCallback((mode: Mode) => {
-    gameRef.current?.start(mode);
-    setScreen("playing");
+  const startGame = useCallback(
+    (mode: Mode) => {
+      gameRef.current?.start(mode, pvp);
+      setScreen("playing");
+    },
+    [pvp],
+  );
+
+  const buyWeapon = useCallback((id: WeaponId, playerIndex?: number) => {
+    gameRef.current?.buyWeapon(id, playerIndex);
   }, []);
+  const buyAmmo = useCallback((id: WeaponId, playerIndex?: number) => {
+    gameRef.current?.buyAmmo(id, playerIndex);
+  }, []);
+
+  const shoppers = state.players
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.alive && p.nearShop);
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-background select-none">
