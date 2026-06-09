@@ -379,9 +379,11 @@ export class Game {
   }
 
   // ---- lifecycle ---------------------------------------------------------
-  start(mode: Mode) {
+  start(mode: Mode, pvp = false) {
     this.mode = mode;
+    this.pvp = mode === "coop" ? pvp : false;
     this.state = this.blankState(mode);
+    this.state.pvp = this.pvp;
     this.buildWorld();
     this.cops = [];
     this.bullets = [];
@@ -410,7 +412,11 @@ export class Game {
         shootCd: 0,
         enterCd: 0,
         color: P_COLORS[i],
-        ammo: 48,
+        switchCd: 0,
+        weapons: ["pistol"],
+        weaponIndex: 0,
+        ammo: { pistol: WEAPONS.pistol.ammoPack, smg: 0, shotgun: 0 },
+        nearShop: false,
         walkPhase: 0,
       });
       this.cams.push({ x: px, y: py, shake: 0 });
