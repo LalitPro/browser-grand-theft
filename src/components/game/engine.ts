@@ -6,6 +6,29 @@
 
 export type Mode = "solo" | "coop";
 
+export type WeaponId = "pistol" | "smg" | "shotgun";
+
+export interface WeaponDef {
+  id: WeaponId;
+  name: string;
+  cd: number; // seconds between shots
+  damage: number;
+  pellets: number;
+  spread: number;
+  speed: number;
+  price: number; // cost to buy the gun
+  ammoPrice: number; // cost per ammo pack
+  ammoPack: number; // rounds per pack
+}
+
+export const WEAPONS: Record<WeaponId, WeaponDef> = {
+  pistol: { id: "pistol", name: "Pistol", cd: 0.28, damage: 24, pellets: 1, spread: 0.05, speed: 820, price: 0, ammoPrice: 80, ammoPack: 36 },
+  smg: { id: "smg", name: "SMG", cd: 0.08, damage: 14, pellets: 1, spread: 0.11, speed: 900, price: 1500, ammoPrice: 200, ammoPack: 90 },
+  shotgun: { id: "shotgun", name: "Shotgun", cd: 0.62, damage: 13, pellets: 6, spread: 0.32, speed: 720, price: 2800, ammoPrice: 300, ammoPack: 24 },
+};
+
+export const WEAPON_ORDER: WeaponId[] = ["pistol", "smg", "shotgun"];
+
 export interface PlayerHud {
   health: number;
   speedKmh: number;
@@ -13,6 +36,10 @@ export interface PlayerHud {
   alive: boolean;
   respawnIn: number;
   ammo: number;
+  weapon: string;
+  weaponId: WeaponId;
+  owned: WeaponId[];
+  nearShop: boolean;
 }
 
 export interface GameState {
@@ -23,6 +50,7 @@ export interface GameState {
   players: PlayerHud[];
   running: boolean;
   gameOver: boolean;
+  pvp: boolean;
 }
 
 type Listener = (s: GameState) => void;
