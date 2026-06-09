@@ -31,6 +31,7 @@ export const WEAPON_ORDER: WeaponId[] = ["pistol", "smg", "shotgun"];
 
 export interface PlayerHud {
   health: number;
+  armor: number;
   speedKmh: number;
   onFoot: boolean;
   alive: boolean;
@@ -45,12 +46,15 @@ export interface PlayerHud {
 export interface GameState {
   mode: Mode;
   cash: number;
-  wanted: number; // 0 or 1 for the MVP
+  wanted: number; // 0 to 5
   score: number;
   players: PlayerHud[];
   running: boolean;
   gameOver: boolean;
   pvp: boolean;
+  policeSearching: boolean;
+  radioStation: string;
+  radioSong: string;
 }
 
 type Listener = (s: GameState) => void;
@@ -89,7 +93,7 @@ interface Tree {
   r: number;
 }
 
-type VType = "car" | "bike";
+type VType = "car" | "bike" | "police";
 
 interface Vehicle {
   x: number;
@@ -100,6 +104,12 @@ interface Vehicle {
   color: string;
   occupants: number[]; // player ids; [0] is the driver
   stolen: boolean;
+  npcDriver?: boolean;
+  sirenTimer?: number;
+  radioStation?: string;
+  radioSong?: string;
+  radioSongTimer?: number;
+  isPoliceCruiser?: boolean;
 }
 
 interface Player {
@@ -110,6 +120,7 @@ interface Player {
   vx: number;
   vy: number;
   health: number;
+  armor: number;
   alive: boolean;
   respawnIn: number;
   vehicle: Vehicle | null;
@@ -117,6 +128,7 @@ interface Player {
   enterCd: number;
   color: string;
   switchCd: number;
+  radioCd?: number;
   weapons: WeaponId[];
   weaponIndex: number;
   ammo: Record<WeaponId, number>;
@@ -131,6 +143,7 @@ interface Cop {
   health: number;
   shootCd: number;
   alive: boolean;
+  isDriver?: boolean;
 }
 
 interface Ped {
@@ -140,6 +153,9 @@ interface Ped {
   vy: number;
   color: string;
   alive: boolean;
+  panicTimer?: number;
+  panicFromX?: number;
+  panicFromY?: number;
 }
 
 interface Bullet {
@@ -171,6 +187,15 @@ interface Particle {
   size: number;
 }
 
+interface Loot {
+  x: number;
+  y: number;
+  type: "cash" | "health" | "armor" | "ammo_pistol" | "ammo_smg" | "ammo_shotgun";
+  amount: number;
+  life: number;
+  pulse: number;
+}
+
 // ---- world layout --------------------------------------------------------
 const ROAD = 120;
 const BW = 540;
@@ -190,6 +215,13 @@ const ZONES: Zone[][] = [
 
 const P_COLORS = ["#ff4d4d", "#39b6ff"];
 const SHOP_COLORS = ["#e0a13a", "#cf5b48", "#3f9d8f", "#c463a6", "#5b8dd6"];
+
+const RADIO_STATIONS = [
+  { name: "Radio Los Santos", songs: ["N.W.A - Express Yourself", "Dr. Dre - Nuthin' But A G Thang", "2Pac - California Love", "Snoop Dogg - Gin And Juice"] },
+  { name: "K-DST", songs: ["America - A Horse With No Name", "Boston - More Than A Feeling", "Tom Petty - Free Fallin'", "CCR - Fortunate Son"] },
+  { name: "Bounce FM", songs: ["Ohio Players - Love Rollercoaster", "Kool & The Gang - Hollywood Swinging", "Rick James - Give It To Me Baby", "Chic - Good Times"] },
+  { name: "Radio Off", songs: ["None"] }
+];
 
 function rand(a: number, b: number) {
   return a + Math.random() * (b - a);
@@ -215,9 +247,12 @@ export class Game {
   private bullets: Bullet[] = [];
   private pickups: Pickup[] = [];
   private particles: Particle[] = [];
+  private loots: Loot[] = [];
   private cams: { x: number; y: number; shake: number }[] = [];
 
   private copSpawnCd = 0;
+  private copKills = 0;
+  private pedKills = 0;
   private escapeTimer = 0; // seconds out of police sight
   private pvp = false;
   private shop = { x: 0, y: 0, r: 70 };
@@ -239,6 +274,7 @@ export class Game {
       score: 0,
       players: Array.from({ length: n }, () => ({
         health: 100,
+        armor: 0,
         speedKmh: 0,
         onFoot: true,
         alive: true,
@@ -252,6 +288,9 @@ export class Game {
       running: false,
       gameOver: false,
       pvp: false,
+      policeSearching: false,
+      radioStation: "",
+      radioSong: "",
     };
   }
 
@@ -307,10 +346,40 @@ export class Game {
     this.vehicles.push(this.mkVehicle(spawn.x + BW / 2, spawn.y + BH + 30, "bike", "#46b1c9"));
     this.vehicles.push(this.mkVehicle(this.block(2, 1).x - 30, this.block(2, 1).y + 60, "car", "#5cc46a"));
     this.vehicles.push(this.mkVehicle(this.block(3, 2).x + 60, this.block(3, 2).y - 30, "car", "#c9603f"));
+
+    // Spawn 4 NPC-driven ambient traffic vehicles
+    this.vehicles.push(this.mkVehicle(this.block(1, 1).x + BW / 2, this.block(1, 1).y - 30, "car", "#4287f5", true));
+    this.vehicles.push(this.mkVehicle(this.block(2, 2).x - 30, this.block(2, 2).y + BH / 2, "car", "#a83232", true));
+    this.vehicles.push(this.mkVehicle(this.block(0, 2).x + BW / 2, this.block(0, 2).y + BH + 30, "car", "#1ba135", true));
+    this.vehicles.push(this.mkVehicle(this.block(3, 0).x - 30, this.block(3, 0).y + BH / 2, "car", "#7832a8", true));
   }
 
-  private mkVehicle(x: number, y: number, type: VType, color: string): Vehicle {
-    return { x, y, angle: 0, speed: 0, type, color, occupants: [], stolen: false };
+  private initRadio(v: Vehicle) {
+    const idx = (Math.random() * (RADIO_STATIONS.length - 1)) | 0; // random music station
+    v.radioStation = RADIO_STATIONS[idx].name;
+    const songs = RADIO_STATIONS[idx].songs;
+    v.radioSong = songs[(Math.random() * songs.length) | 0];
+    v.radioSongTimer = 5;
+  }
+
+  private mkVehicle(x: number, y: number, type: VType, color: string, npcDriver = false): Vehicle {
+    const v: Vehicle = {
+      x,
+      y,
+      angle: 0,
+      speed: 0,
+      type,
+      color,
+      occupants: [],
+      stolen: false,
+      npcDriver
+    };
+    this.initRadio(v);
+    if (npcDriver) {
+      v.angle = Math.random() < 0.5 ? 0 : Math.PI;
+      v.speed = 120;
+    }
+    return v;
   }
 
   private fillBlock(x0: number, y0: number, zone: Zone) {
@@ -388,8 +457,11 @@ export class Game {
     this.cops = [];
     this.bullets = [];
     this.particles = [];
+    this.loots = [];
     this.copSpawnCd = 0;
     this.escapeTimer = 0;
+    this.copKills = 0;
+    this.pedKills = 0;
 
     const n = mode === "coop" ? 2 : 1;
     this.players = [];
@@ -406,6 +478,7 @@ export class Game {
         vx: 0,
         vy: 0,
         health: 100,
+        armor: 0,
         alive: true,
         respawnIn: 0,
         vehicle: null,
@@ -413,6 +486,7 @@ export class Game {
         enterCd: 0,
         color: P_COLORS[i],
         switchCd: 0,
+        radioCd: 0,
         weapons: ["pistol"],
         weaponIndex: 0,
         ammo: { pistol: WEAPONS.pistol.ammoPack, smg: 0, shotgun: 0 },
@@ -474,6 +548,18 @@ export class Game {
     return true;
   }
 
+  buyArmor(playerIndex?: number): boolean {
+    const p = this.shopPlayer(playerIndex);
+    if (!p) return false;
+    const price = 1000;
+    if (this.state.cash < price) return false;
+    if (p.armor >= 100) return false;
+    this.state.cash -= price;
+    p.armor = 100;
+    this.emit();
+    return true;
+  }
+
   private curWeaponId(p: Player): WeaponId {
     return p.weapons[p.weaponIndex] ?? "pistol";
   }
@@ -487,6 +573,7 @@ export class Game {
       const p = this.players[i];
       if (!p) return;
       h.health = Math.max(0, Math.round(p.health));
+      h.armor = Math.max(0, Math.round(p.armor));
       h.onFoot = !p.vehicle;
       h.alive = p.alive;
       h.respawnIn = Math.ceil(p.respawnIn);
@@ -498,6 +585,20 @@ export class Game {
       h.nearShop = p.nearShop;
       h.speedKmh = p.vehicle ? Math.round(Math.abs(p.vehicle.speed) / 3.2) : 0;
     });
+
+    // copy active vehicle's radio details to the HUD state
+    const activeVehicle = this.players.find((p) => p.alive && p.vehicle)?.vehicle;
+    if (activeVehicle) {
+      this.state.radioStation = activeVehicle.radioStation || "Radio Off";
+      this.state.radioSong = activeVehicle.radioSongTimer && activeVehicle.radioSongTimer > 0 ? activeVehicle.radioSong || "" : "";
+    } else {
+      this.state.radioStation = "";
+      this.state.radioSong = "";
+    }
+
+    // search flashing is active if wanted level is up but player is out of police sight
+    this.state.policeSearching = this.state.wanted > 0 && this.escapeTimer > 0;
+
     this.listener({ ...this.state, players: this.state.players.map((p) => ({ ...p })) });
   }
 
@@ -529,6 +630,7 @@ export class Game {
         shoot: this.keys["KeyF"] || this.keys["Space"],
         enter: this.keys["KeyE"],
         swap: this.keys["KeyQ"],
+        radio: this.keys["KeyR"],
       };
     return {
       up: this.keys["ArrowUp"],
@@ -538,6 +640,7 @@ export class Game {
       shoot: this.keys["Slash"],
       enter: this.keys["Enter"] || this.keys["NumpadEnter"],
       swap: this.keys["ShiftRight"] || this.keys["Period"],
+      radio: false,
     };
   }
 
@@ -549,6 +652,8 @@ export class Game {
     this.updatePolice(dt);
     this.updatePickups(dt);
     this.updateParticles(dt);
+    this.updateLoots(dt);
+    this.updateTraffic(dt);
 
     // cameras (smooth follow + shake decay)
     this.players.forEach((p, i) => {
@@ -639,6 +744,24 @@ export class Game {
     const v = p.vehicle!;
     const driver = v.occupants[0] === p.id;
 
+    if (v.radioSongTimer && v.radioSongTimer > 0) {
+      v.radioSongTimer -= dt;
+    }
+    if (p.radioCd && p.radioCd > 0) {
+      p.radioCd -= dt;
+    }
+
+    if (c.radio && (!p.radioCd || p.radioCd <= 0)) {
+      p.radioCd = 0.45;
+      const curIdx = RADIO_STATIONS.findIndex((s) => s.name === v.radioStation);
+      const nextIdx = (curIdx + 1) % RADIO_STATIONS.length;
+      v.radioStation = RADIO_STATIONS[nextIdx].name;
+      const songs = RADIO_STATIONS[nextIdx].songs;
+      v.radioSong = songs[(Math.random() * songs.length) | 0];
+      v.radioSongTimer = 5;
+      this.emit();
+    }
+
     if (driver) {
       const bike = v.type === "bike";
       const accel = bike ? 620 : 540;
@@ -676,17 +799,57 @@ export class Game {
             ped.alive = false;
             this.state.score += 30;
             this.blood(ped.x, ped.y);
-            this.commitCrime();
+            this.commitCrime(1);
+            this.pedKills = (this.pedKills || 0) + 1;
+            if (this.pedKills % 3 === 0) {
+              this.state.wanted = Math.min(5, this.state.wanted + 1);
+            }
+            this.loots.push({
+              x: ped.x,
+              y: ped.y,
+              type: Math.random() < 0.25 ? "health" : "cash",
+              amount: Math.random() < 0.5 ? 50 : 100,
+              life: 15,
+              pulse: rand(0, 6.28),
+            });
             setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
           }
         }
+      }
+    } else {
+      // passenger controls aiming & shooting
+      let tx = 0;
+      let ty = 0;
+      if (c.up) ty -= 1;
+      if (c.down) ty += 1;
+      if (c.left) tx -= 1;
+      if (c.right) tx += 1;
+      if (tx !== 0 || ty !== 0) {
+        p.angle = Math.atan2(ty, tx);
+      }
+
+      p.switchCd -= dt;
+      if (c.swap && p.switchCd <= 0 && p.weapons.length > 1) {
+        p.switchCd = 0.3;
+        p.weaponIndex = (p.weaponIndex + 1) % p.weapons.length;
+      }
+
+      p.shootCd -= dt;
+      const w = this.curWeapon(p);
+      const wid = this.curWeaponId(p);
+      if (c.shoot && p.shootCd <= 0 && p.ammo[wid] > 0) {
+        p.shootCd = w.cd;
+        p.ammo[wid]--;
+        this.fire(p, w);
       }
     }
 
     // all occupants ride along
     p.x = v.x;
     p.y = v.y;
-    p.angle = v.angle;
+    if (driver) {
+      p.angle = v.angle;
+    }
 
     if (c.enter && p.enterCd <= 0) {
       p.enterCd = 0.45;
@@ -708,12 +871,35 @@ export class Game {
     }
     if (!best) return;
     const firstSteal = best.occupants.length === 0;
+
+    // if vehicle has an NPC driver, eject them!
+    if (best.npcDriver) {
+      best.npcDriver = false;
+      best.speed = 0;
+      const colors = ["#e2c08d", "#d98c5f", "#f0d6c2", "#b5e0c2", "#e0b5d4", "#c9a0e0"];
+      const col = colors[(Math.random() * colors.length) | 0];
+      this.peds.push({
+        x: best.x + Math.cos(best.angle + Math.PI / 2) * 25,
+        y: best.y + Math.sin(best.angle + Math.PI / 2) * 25,
+        vx: Math.cos(best.angle + Math.PI / 2) * 150,
+        vy: Math.sin(best.angle + Math.PI / 2) * 150,
+        color: col,
+        alive: true,
+        panicTimer: 6.0,
+        panicFromX: p.x,
+        panicFromY: p.y
+      });
+      best.stolen = true;
+      this.commitCrime(1);
+      this.state.score += 50;
+    }
+
     best.occupants.push(p.id);
     p.vehicle = best;
     // entering an unoccupied car/bike = grand theft auto -> police
     if (firstSteal && !best.stolen) {
       best.stolen = true;
-      this.commitCrime();
+      this.commitCrime(1);
     }
   }
 
@@ -743,12 +929,23 @@ export class Game {
     }
     this.particles.push({ x: p.x + Math.cos(p.angle) * 16, y: p.y + Math.sin(p.angle) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,220,120,0.95)", size: 9 });
     this.cams[p.id] && (this.cams[p.id].shake = Math.min(8, this.cams[p.id].shake + 4));
-    this.commitCrime();
+
+    // trigger panic in nearby pedestrians when a shot is fired
+    for (const ped of this.peds) {
+      if (ped.alive && Math.hypot(ped.x - p.x, ped.y - p.y) < 320) {
+        ped.panicTimer = 5.0;
+        ped.panicFromX = p.x;
+        ped.panicFromY = p.y;
+      }
+    }
+
+    this.commitCrime(1);
   }
 
   private respawn(p: Player) {
     p.alive = true;
     p.health = 100;
+    p.armor = 0;
     p.ammo[this.curWeaponId(p)] = Math.max(p.ammo[this.curWeaponId(p)], WEAPONS.pistol.ammoPack);
     p.vehicle = null;
     p.vx = 0;
@@ -761,14 +958,31 @@ export class Game {
   private updatePeds(dt: number) {
     for (const ped of this.peds) {
       if (!ped.alive) continue;
-      if (Math.random() < 0.012) {
-        ped.vx = rand(-26, 26);
-        ped.vy = rand(-26, 26);
+
+      if (ped.panicTimer && ped.panicTimer > 0) {
+        ped.panicTimer -= dt;
+        if (ped.panicFromX != null && ped.panicFromY != null) {
+          const ang = Math.atan2(ped.y - ped.panicFromY, ped.x - ped.panicFromX);
+          ped.vx = Math.cos(ang) * 130;
+          ped.vy = Math.sin(ang) * 130;
+        }
+      } else {
+        if (Math.random() < 0.012) {
+          ped.vx = rand(-26, 26);
+          ped.vy = rand(-26, 26);
+        }
       }
+
       let nx = ped.x + ped.vx * dt;
       let ny = ped.y + ped.vy * dt;
-      if (nx < ROAD * 0.5 || nx > WORLD_W - ROAD * 0.5) ped.vx *= -1, (nx = ped.x);
-      if (ny < ROAD * 0.5 || ny > WORLD_H - ROAD * 0.5) ped.vy *= -1, (ny = ped.y);
+      if (nx < ROAD * 0.5 || nx > WORLD_W - ROAD * 0.5) {
+        ped.vx *= -1;
+        nx = ped.x;
+      }
+      if (ny < ROAD * 0.5 || ny > WORLD_H - ROAD * 0.5) {
+        ped.vy *= -1;
+        ny = ped.y;
+      }
       if (this.collides(nx, ny, 6)) {
         ped.vx *= -1;
         ped.vy *= -1;
@@ -796,7 +1010,13 @@ export class Game {
           const ty = p.vehicle ? p.vehicle.y : p.y;
           if (Math.hypot(b.x - tx, b.y - ty) < (p.vehicle ? 20 : 11)) {
             b.life = 0;
-            p.health -= p.vehicle ? 5 : 11;
+            let dmg = p.vehicle ? 5 : 11;
+            if (p.armor > 0) {
+              const toArmor = Math.min(p.armor, Math.round(dmg * 0.75));
+              p.armor -= toArmor;
+              dmg -= toArmor;
+            }
+            p.health -= dmg;
             this.spark(b.x, b.y);
             this.cams[p.id] && (this.cams[p.id].shake = 5);
             if (p.health <= 0) this.downPlayer(p);
@@ -813,6 +1033,32 @@ export class Game {
               e.alive = false;
               this.state.cash += 200;
               this.state.score += 150;
+              this.copKills = (this.copKills || 0) + 1;
+              this.state.wanted = Math.min(5, this.state.wanted + 1);
+              this.escapeTimer = 0;
+
+              // Spawn loot!
+              const rnd = Math.random();
+              let lootType: Loot["type"] = "cash";
+              let amount = 200;
+              if (rnd < 0.25) {
+                lootType = "ammo_smg";
+                amount = 45;
+              } else if (rnd < 0.45) {
+                lootType = "armor";
+                amount = 50;
+              } else if (rnd < 0.6) {
+                lootType = "health";
+                amount = 40;
+              }
+              this.loots.push({
+                x: e.x,
+                y: e.y,
+                type: lootType,
+                amount,
+                life: 15.0,
+                pulse: rand(0, 6.28),
+              });
             }
           }
         }
@@ -824,7 +1070,13 @@ export class Game {
             const ty = p.vehicle ? p.vehicle.y : p.y;
             if (Math.hypot(b.x - tx, b.y - ty) < (p.vehicle ? 20 : 11)) {
               b.life = 0;
-              p.health -= p.vehicle ? b.dmg * 0.4 : b.dmg;
+              let dmg = p.vehicle ? b.dmg * 0.4 : b.dmg;
+              if (p.armor > 0) {
+                const toArmor = Math.min(p.armor, Math.round(dmg * 0.75));
+                p.armor -= toArmor;
+                dmg -= toArmor;
+              }
+              p.health -= dmg;
               this.blood(b.x, b.y);
               this.cams[p.id] && (this.cams[p.id].shake = 5);
               if (p.health <= 0) {
@@ -841,7 +1093,19 @@ export class Game {
             ped.alive = false;
             this.blood(ped.x, ped.y);
             this.state.score += 20;
-            this.commitCrime();
+            this.commitCrime(1);
+            this.pedKills = (this.pedKills || 0) + 1;
+            if (this.pedKills % 3 === 0) {
+              this.state.wanted = Math.min(5, this.state.wanted + 1);
+            }
+            this.loots.push({
+              x: ped.x,
+              y: ped.y,
+              type: Math.random() < 0.2 ? "health" : "cash",
+              amount: Math.random() < 0.5 ? 50 : 100,
+              life: 15,
+              pulse: rand(0, 6.28),
+            });
             setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
           }
         }
@@ -861,31 +1125,90 @@ export class Game {
     p.respawnIn = this.mode === "coop" ? 6 : 999;
   }
 
-  private commitCrime() {
-    this.state.wanted = 1;
+  private commitCrime(minStars = 1) {
+    this.state.wanted = Math.max(this.state.wanted, minStars);
     this.escapeTimer = 0;
-    if (this.copSpawnCd <= 0) this.copSpawnCd = rand(2, 4); // delayed first response = tension
+    if (this.copSpawnCd <= 0) this.copSpawnCd = rand(1, 3);
   }
 
-  // VERY simple 1-star police: spawn after a delay, follow nearest player,
-  // shoot occasionally. Escape by staying out of their sight for ~13s.
   private updatePolice(dt: number) {
     if (this.state.wanted === 0) {
       this.cops = [];
+      // remove cop cruisers when wanted level drops to 0
+      this.vehicles = this.vehicles.filter((v) => v.type !== "police" || v.occupants.length > 0);
       return;
     }
 
     this.copSpawnCd -= dt;
-    const alive = this.cops.filter((c) => c.alive).length;
-    if (alive < 2 && this.copSpawnCd <= 0) {
-      this.copSpawnCd = rand(3, 5);
-      const anchor = this.players.find((p) => p.alive) ?? this.players[0];
-      const ang = rand(0, 6.28);
-      this.cops.push({ x: anchor.x + Math.cos(ang) * 720, y: anchor.y + Math.sin(ang) * 720, angle: ang, health: 50, shootCd: rand(0.8, 1.6), alive: true });
+
+    // determine forces and parameters based on Wanted stars
+    let maxFootCops = 2;
+    let maxCruisers = 0;
+    let copSpeed = 210;
+    let spawnMin = 3.0;
+    let spawnMax = 5.0;
+
+    if (this.state.wanted === 2) {
+      maxFootCops = 3;
+      copSpeed = 240;
+      spawnMin = 2.5;
+      spawnMax = 4.5;
+    } else if (this.state.wanted === 3) {
+      maxFootCops = 2;
+      maxCruisers = 1;
+      copSpeed = 240;
+      spawnMin = 2.5;
+      spawnMax = 4.0;
+    } else if (this.state.wanted === 4) {
+      maxFootCops = 2;
+      maxCruisers = 2;
+      copSpeed = 260;
+      spawnMin = 2.0;
+      spawnMax = 3.5;
+    } else if (this.state.wanted === 5) {
+      maxFootCops = 1;
+      maxCruisers = 3;
+      copSpeed = 280;
+      spawnMin = 1.5;
+      spawnMax = 3.0;
     }
 
-    const VISION = 560;
+    const aliveFootCops = this.cops.filter((c) => c.alive).length;
+    const aliveCruisers = this.vehicles.filter((v) => v.type === "police" && v.isPoliceCruiser).length;
+
+    // spawn forces
+    if (this.copSpawnCd <= 0) {
+      const anchor = this.players.find((p) => p.alive) ?? this.players[0];
+      const ang = rand(0, 6.28);
+
+      if (aliveCruisers < maxCruisers && Math.random() < 0.6) {
+        // spawn police cruiser
+        this.copSpawnCd = rand(spawnMin, spawnMax);
+        const cx = anchor.x + Math.cos(ang) * 750;
+        const cy = anchor.y + Math.sin(ang) * 750;
+        const v = this.mkVehicle(cx, cy, "police", "#ffffff");
+        v.isPoliceCruiser = true;
+        v.angle = ang + Math.PI; // facing target
+        v.speed = 220;
+        this.vehicles.push(v);
+      } else if (aliveFootCops < maxFootCops) {
+        // spawn foot patrol cop
+        this.copSpawnCd = rand(spawnMin, spawnMax);
+        this.cops.push({
+          x: anchor.x + Math.cos(ang) * 720,
+          y: anchor.y + Math.sin(ang) * 720,
+          angle: ang,
+          health: 50 + (this.state.wanted >= 4 ? 30 : 0),
+          shootCd: rand(0.5, 1.5),
+          alive: true
+        });
+      }
+    }
+
+    const VISION = 580;
     let seen = false;
+
+    // 1. Update foot cops
     for (const e of this.cops) {
       if (!e.alive) continue;
       let tx = 0;
@@ -905,14 +1228,13 @@ export class Game {
       if (bd === Infinity) continue;
       if (bd < VISION) seen = true;
       e.angle = Math.atan2(ty - e.y, tx - e.x);
-      if (bd > 200) {
-        // move toward the target but slide along building walls (no clipping through)
-        const step = 210 * dt;
+
+      if (bd > 160) {
+        const step = copSpeed * dt;
         const nx = e.x + Math.cos(e.angle) * step;
         const ny = e.y + Math.sin(e.angle) * step;
         if (!this.collides(nx, e.y, 11)) e.x = nx;
         else {
-          // try sliding perpendicular to get around the building
           const sy = e.y + Math.sin(e.angle + Math.PI / 2) * step;
           if (!this.collides(e.x, sy, 11)) e.y = sy;
         }
@@ -922,21 +1244,161 @@ export class Game {
           if (!this.collides(sx, e.y, 11)) e.x = sx;
         }
       }
+
       e.shootCd -= dt;
       if (bd < 460 && e.shootCd <= 0) {
-        e.shootCd = rand(1, 1.8);
-        const a = e.angle + rand(-0.08, 0.08);
-        this.bullets.push({ x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 1, hostile: true, owner: -1, dmg: 11 });
+        if (this.state.wanted === 5 && Math.random() < 0.35) {
+          // SWAT shotguns
+          e.shootCd = rand(1.2, 2.0);
+          for (let pellet = 0; pellet < 4; pellet++) {
+            const a = e.angle + rand(-0.25, 0.25);
+            this.bullets.push({
+              x: e.x + Math.cos(a) * 12,
+              y: e.y + Math.sin(a) * 12,
+              vx: Math.cos(a) * 580,
+              vy: Math.sin(a) * 580,
+              life: 0.8,
+              hostile: true,
+              owner: -1,
+              dmg: 7
+            });
+          }
+          this.particles.push({ x: e.x + Math.cos(e.angle) * 16, y: e.y + Math.sin(e.angle) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,180,80,0.9)", size: 8 });
+        } else {
+          // pistol or SMG
+          const isSMG = this.state.wanted >= 4;
+          e.shootCd = isSMG ? rand(0.35, 0.75) : rand(1.0, 1.8);
+          const a = e.angle + rand(-0.08, 0.08);
+          this.bullets.push({
+            x: e.x + Math.cos(a) * 12,
+            y: e.y + Math.sin(a) * 12,
+            vx: Math.cos(a) * 540,
+            vy: Math.sin(a) * 540,
+            life: 1.0,
+            hostile: true,
+            owner: -1,
+            dmg: isSMG ? 8 : 11
+          });
+        }
       }
     }
     this.cops = this.cops.filter((c) => c.alive);
 
+    // 2. Update police cruisers
+    for (const v of this.vehicles) {
+      if (v.type === "police" && v.isPoliceCruiser) {
+        v.sirenTimer = (v.sirenTimer || 0) + dt;
+
+        let tx = 0;
+        let ty = 0;
+        let bd = Infinity;
+        let targetPlayer: Player | null = null;
+
+        for (const p of this.players) {
+          if (!p.alive) continue;
+          const px = p.vehicle ? p.vehicle.x : p.x;
+          const py = p.vehicle ? p.vehicle.y : p.y;
+          const d = Math.hypot(px - v.x, py - v.y);
+          if (d < bd) {
+            bd = d;
+            tx = px;
+            ty = py;
+            targetPlayer = p;
+          }
+        }
+
+        if (bd === Infinity || !targetPlayer) continue;
+        if (bd < VISION) seen = true;
+
+        // steer cruiser towards player
+        const targetAngle = Math.atan2(ty - v.y, tx - v.x);
+        let diff = targetAngle - v.angle;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        v.angle += Math.sign(diff) * Math.min(Math.abs(diff), 2.2 * dt);
+
+        const targetSpeed = this.state.wanted >= 4 ? 430 : 360;
+        v.speed += (targetSpeed - v.speed) * Math.min(1, 2.0 * dt);
+
+        const step = v.speed * dt;
+        const nx = v.x + Math.cos(v.angle) * step;
+        const ny = v.y + Math.sin(v.angle) * step;
+        const rad = 17;
+
+        if (!this.collides(nx, v.y, rad)) v.x = nx;
+        else {
+          v.speed *= -0.5;
+          v.angle += rand(-0.8, 0.8);
+        }
+
+        if (!this.collides(v.x, ny, rad)) v.y = ny;
+        else {
+          v.speed *= -0.5;
+          v.angle += rand(-0.8, 0.8);
+        }
+
+        // Ramming checks
+        if (targetPlayer.vehicle) {
+          if (Math.hypot(targetPlayer.vehicle.x - v.x, targetPlayer.vehicle.y - v.y) < 32) {
+            v.speed *= 0.25;
+            targetPlayer.vehicle.speed *= 0.6;
+            this.spark(v.x, v.y);
+            // deal damage to occupants of player vehicle
+            for (const pid of targetPlayer.vehicle.occupants) {
+              const occ = this.players[pid];
+              if (occ && occ.alive) {
+                let dmg = 8;
+                if (occ.armor > 0) {
+                  const toArmor = Math.min(occ.armor, Math.round(dmg * 0.75));
+                  occ.armor -= toArmor;
+                  dmg -= toArmor;
+                }
+                occ.health -= dmg;
+                if (occ.health <= 0) this.downPlayer(occ);
+              }
+            }
+          }
+        } else {
+          if (Math.hypot(targetPlayer.x - v.x, targetPlayer.y - v.y) < 25) {
+            v.speed *= 0.15;
+            this.blood(targetPlayer.x, targetPlayer.y);
+            let dmg = 22; // high impact ram
+            if (targetPlayer.armor > 0) {
+              const toArmor = Math.min(targetPlayer.armor, Math.round(dmg * 0.75));
+              targetPlayer.armor -= toArmor;
+              dmg -= toArmor;
+            }
+            targetPlayer.health -= dmg;
+            this.cams[targetPlayer.id] && (this.cams[targetPlayer.id].shake = 10);
+            if (targetPlayer.health <= 0) this.downPlayer(targetPlayer);
+          }
+        }
+
+        // shoot from passenger seat of cruiser
+        if (bd < 380 && Math.random() < 0.02) {
+          const a = v.angle + rand(-0.15, 0.15);
+          this.bullets.push({
+            x: v.x + Math.cos(a) * 20,
+            y: v.y + Math.sin(a) * 20,
+            vx: Math.cos(a) * 540,
+            vy: Math.sin(a) * 540,
+            life: 1.0,
+            hostile: true,
+            owner: -1,
+            dmg: this.state.wanted >= 4 ? 8 : 11
+          });
+        }
+      }
+    }
+
     // escape logic
     if (seen) this.escapeTimer = 0;
     else this.escapeTimer += dt;
-    if (this.escapeTimer > 13) {
+
+    const escapeRequired = 10 + this.state.wanted * 3; // 13s to 25s
+    if (this.escapeTimer > escapeRequired) {
       this.state.wanted = 0;
       this.cops = [];
+      this.vehicles = this.vehicles.filter((v) => v.type !== "police");
       this.escapeTimer = 0;
     }
   }
@@ -960,6 +1422,127 @@ export class Game {
           }, 5000);
           break;
         }
+      }
+    }
+  }
+
+  private updateLoots(dt: number) {
+    for (const loot of this.loots) {
+      loot.life -= dt;
+      loot.pulse += dt * 5;
+
+      for (const p of this.players) {
+        if (!p.alive) continue;
+        const px = p.vehicle ? p.vehicle.x : p.x;
+        const py = p.vehicle ? p.vehicle.y : p.y;
+        if (Math.hypot(loot.x - px, loot.y - py) < 25) {
+          loot.life = 0; // collect
+          this.spark(loot.x, loot.y);
+
+          if (loot.type === "cash") {
+            this.state.cash += loot.amount;
+            this.state.score += 50;
+          } else if (loot.type === "health") {
+            p.health = Math.min(100, p.health + loot.amount);
+          } else if (loot.type === "armor") {
+            p.armor = Math.min(100, p.armor + loot.amount);
+          } else if (loot.type === "ammo_smg") {
+            p.ammo.smg += loot.amount;
+          } else if (loot.type === "ammo_shotgun") {
+            p.ammo.shotgun += loot.amount;
+          }
+          this.emit();
+          break;
+        }
+      }
+    }
+    this.loots = this.loots.filter((l) => l.life > 0);
+  }
+
+  private updateTraffic(dt: number) {
+    // 1. Update existing traffic cars
+    for (const v of this.vehicles) {
+      if (!v.npcDriver) continue;
+
+      // check if blocked by another vehicle or player in front
+      const lookDist = 60;
+      const fx = v.x + Math.cos(v.angle) * lookDist;
+      const fy = v.y + Math.sin(v.angle) * lookDist;
+      let blocked = false;
+
+      // check players
+      for (const p of this.players) {
+        if (!p.alive) continue;
+        if (Math.hypot(p.x - fx, p.y - fy) < 40) blocked = true;
+      }
+      // check other vehicles
+      for (const other of this.vehicles) {
+        if (other === v) continue;
+        if (Math.hypot(other.x - fx, other.y - fy) < 45) blocked = true;
+      }
+
+      if (blocked) {
+        v.speed *= 1 - 4 * dt; // brake quickly
+        if (Math.abs(v.speed) < 5) v.speed = 0;
+        // spawn steam/honk particles occasionally
+        if (Math.random() < 0.01) {
+          this.particles.push({ x: fx, y: fy, vx: rand(-10, 10), vy: rand(-10, 10), life: 0.3, max: 0.3, color: "rgba(255,255,255,0.3)", size: 4 });
+        }
+      } else {
+        // accelerate to traffic speed
+        v.speed += (120 - v.speed) * Math.min(1, 2 * dt);
+      }
+
+      // move and slide/bounce on buildings
+      const step = v.speed * dt;
+      const nx = v.x + Math.cos(v.angle) * step;
+      const ny = v.y + Math.sin(v.angle) * step;
+      const rad = 17;
+
+      if (!this.collides(nx, v.y, rad)) v.x = nx;
+      else {
+        v.speed *= -0.25;
+        v.angle = Math.random() < 0.5 ? v.angle + Math.PI / 2 : v.angle - Math.PI / 2;
+      }
+
+      if (!this.collides(v.x, ny, rad)) v.y = ny;
+      else {
+        v.speed *= -0.25;
+        v.angle = Math.random() < 0.5 ? v.angle + Math.PI / 2 : v.angle - Math.PI / 2;
+      }
+
+      // keep within bounds
+      v.x = Math.max(20, Math.min(WORLD_W - 20, v.x));
+      v.y = Math.max(20, Math.min(WORLD_H - 20, v.y));
+
+      // random turning at intersections to make traffic dynamic
+      if (Math.random() < 0.008 && Math.abs(v.speed) > 50) {
+        // check if currently on a road crossing/intersection
+        const isNearIntersection = this.roads.filter(r => r.horizontal).some(hr => 
+          this.roads.filter(r => !r.horizontal).some(vr => 
+            Math.hypot(v.x - (vr.x + vr.w/2), v.y - (hr.y + hr.h/2)) < 30
+          )
+        );
+        if (isNearIntersection) {
+          v.angle = Math.random() < 0.5 ? v.angle + Math.PI / 2 : v.angle - Math.PI / 2;
+        }
+      }
+    }
+
+    // 2. Spawn ambient traffic off-screen if count is low
+    const npcCount = this.vehicles.filter((v) => v.npcDriver).length;
+    if (npcCount < 6 && Math.random() < 0.005) {
+      const anchor = this.players.find((p) => p.alive) ?? this.players[0];
+      const r = this.roads[Math.floor(Math.random() * this.roads.length)];
+      const rx = r.horizontal ? rand(r.x + 50, r.x + r.w - 50) : rand(r.x + 20, r.x + r.w - 20);
+      const ry = r.horizontal ? rand(r.y + 20, r.y + r.h - 20) : rand(r.y + 50, r.y + r.h - 50);
+
+      // check off-screen from anchor
+      if (Math.hypot(rx - anchor.x, ry - anchor.y) > 540) {
+        const colors = ["#4287f5", "#a83232", "#1ba135", "#7832a8", "#d8c24a", "#46b1c9", "#5cc46a", "#c9603f"];
+        const col = colors[Math.floor(Math.random() * colors.length)];
+        const type = Math.random() < 0.2 ? "bike" : "car";
+        this.vehicles.push(this.mkVehicle(rx, ry, type, col, true));
       }
     }
   }
@@ -1129,6 +1712,69 @@ export class Game {
       ctx.restore();
     }
 
+    // loots
+    for (const loot of this.loots) {
+      if (loot.life <= 0) continue;
+      const s = 1 + Math.sin(loot.pulse) * 0.12;
+      ctx.save();
+      ctx.translate(loot.x, loot.y);
+      ctx.scale(s, s);
+      if (loot.type === "cash") {
+        ctx.shadowColor = "rgba(120,220,140,0.9)";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#3fcf6a";
+        ctx.fillRect(-10, -7, 20, 14);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#0c3a1c";
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("₹", 0, 1);
+      } else if (loot.type === "health") {
+        ctx.shadowColor = "rgba(255,100,100,0.8)";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(0, 0, 9, 0, 6.28);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#e23b3b";
+        ctx.fillRect(-6, -2, 12, 4);
+        ctx.fillRect(-2, -6, 4, 12);
+      } else if (loot.type === "armor") {
+        ctx.shadowColor = "rgba(100,180,255,0.8)";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = "#39b6ff";
+        ctx.beginPath();
+        ctx.moveTo(0, -9);
+        ctx.lineTo(8, -5);
+        ctx.lineTo(6, 3);
+        ctx.lineTo(0, 9);
+        ctx.lineTo(-6, 3);
+        ctx.lineTo(-8, -5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 9px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("A", 0, 0);
+      } else {
+        ctx.shadowColor = "rgba(240,210,120,0.8)";
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = "#bfa75c";
+        ctx.fillRect(-8, -6, 16, 12);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#222222";
+        ctx.font = "bold 8px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("AM", 0, 0);
+      }
+      ctx.restore();
+    }
+
     // peds
     for (const ped of this.peds) {
       if (!ped.alive) continue;
@@ -1143,7 +1789,11 @@ export class Game {
     }
 
     // parked / empty vehicles
-    for (const v of this.vehicles) if (v.occupants.length === 0) this.drawVehicle(ctx, v, false);
+    for (const v of this.vehicles) {
+      if (v.occupants.length === 0 && !v.isPoliceCruiser) {
+        this.drawVehicle(ctx, v, false);
+      }
+    }
 
     // cops
     for (const e of this.cops) {
@@ -1160,16 +1810,38 @@ export class Game {
       ctx.textAlign = "center";
       if (this.mode === "coop") ctx.fillText(`P${i + 1}`, p.x, p.y - 18);
     });
-    // occupied vehicles (drawn in the driver's colour)
+
+    // occupied vehicles (or police cruisers)
     for (const v of this.vehicles) {
-      if (v.occupants.length === 0) continue;
-      const driver = this.players[v.occupants[0]];
-      this.drawVehicle(ctx, v, true, driver?.color);
-      if (this.mode === "coop") {
-        ctx.fillStyle = driver?.color ?? "#fff";
-        ctx.font = "bold 11px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(v.occupants.map((id) => `P${id + 1}`).join("+"), v.x, v.y - 26);
+      if (v.occupants.length === 0 && !v.isPoliceCruiser) continue;
+      if (v.isPoliceCruiser) {
+        // Draw police cruiser driven by cops
+        this.drawVehicle(ctx, v, true, "#ffffff");
+        // Draw driver cop
+        this.drawPerson(ctx, v.x - Math.cos(v.angle + Math.PI / 2) * 5, v.y - Math.sin(v.angle + Math.PI / 2) * 5, v.angle, "#2d54c8", true);
+        // Draw passenger cop
+        this.drawPerson(ctx, v.x + Math.cos(v.angle + Math.PI / 2) * 5, v.y + Math.sin(v.angle + Math.PI / 2) * 5, v.angle, "#2d54c8", true);
+      } else {
+        const driver = this.players[v.occupants[0]];
+        this.drawVehicle(ctx, v, true, driver?.color);
+        
+        // draw passenger leaning out (drive-by style)
+        for (let idx = 1; idx < v.occupants.length; idx++) {
+          const pass = this.players[v.occupants[idx]];
+          if (pass && pass.alive) {
+            const sideAngle = v.angle + Math.PI / 2;
+            const px = v.x + Math.cos(sideAngle) * 7;
+            const py = v.y + Math.sin(sideAngle) * 7;
+            this.drawPerson(ctx, px, py, pass.angle, pass.color, false);
+          }
+        }
+
+        if (this.mode === "coop") {
+          ctx.fillStyle = driver?.color ?? "#fff";
+          ctx.font = "bold 11px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(v.occupants.map((id) => `P${id + 1}`).join("+"), v.x, v.y - 26);
+        }
       }
     }
 
@@ -1290,12 +1962,57 @@ export class Game {
     } else {
       ctx.fillStyle = "rgba(0,0,0,0.4)";
       ctx.fillRect(-19, -11, 40, 24);
-      ctx.fillStyle = occupied && tint ? tint : v.color;
-      ctx.fillRect(-20, -12, 40, 24);
-      ctx.fillStyle = "rgba(0,0,0,0.22)";
-      ctx.fillRect(-12, -10, 14, 20);
-      ctx.fillStyle = "rgba(180,220,255,0.75)";
-      ctx.fillRect(4, -9, 8, 18);
+      if (v.type === "police") {
+        // police cruiser: black and white
+        ctx.fillStyle = "#111111"; // black base
+        ctx.fillRect(-20, -12, 40, 24);
+        ctx.fillStyle = "#ffffff"; // white doors/roof
+        ctx.fillRect(-8, -12, 16, 24);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillRect(-10, -9, 11, 18);
+        ctx.fillStyle = "rgba(180,220,255,0.75)";
+        ctx.fillRect(3, -8, 8, 16);
+        
+        // blinking sirens on top
+        const sirenState = Math.floor((v.sirenTimer || 0) * 10) % 2 === 0;
+        ctx.fillStyle = sirenState ? "#ff3333" : "#3333ff";
+        ctx.fillRect(-2, -8, 4, 6);
+        ctx.fillStyle = sirenState ? "#3333ff" : "#ff3333";
+        ctx.fillRect(-2, 2, 4, 6);
+
+        // draw translucent siren light beams projecting out
+        ctx.save();
+        ctx.rotate(Math.PI / 2);
+        const lgSirenL = ctx.createLinearGradient(0, 0, 0, 100);
+        lgSirenL.addColorStop(0, sirenState ? "rgba(255,50,50,0.4)" : "rgba(50,50,255,0.4)");
+        lgSirenL.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = lgSirenL;
+        ctx.beginPath();
+        ctx.moveTo(0, 5);
+        ctx.lineTo(-35, 100);
+        ctx.lineTo(35, 100);
+        ctx.closePath();
+        ctx.fill();
+
+        const lgSirenR = ctx.createLinearGradient(0, 0, 0, -100);
+        lgSirenR.addColorStop(0, sirenState ? "rgba(50,50,255,0.4)" : "rgba(255,50,50,0.4)");
+        lgSirenR.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = lgSirenR;
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(-35, -100);
+        ctx.lineTo(35, -100);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.fillStyle = occupied && tint ? tint : v.color;
+        ctx.fillRect(-20, -12, 40, 24);
+        ctx.fillStyle = "rgba(0,0,0,0.22)";
+        ctx.fillRect(-12, -10, 14, 20);
+        ctx.fillStyle = "rgba(180,220,255,0.75)";
+        ctx.fillRect(4, -9, 8, 18);
+      }
     }
     ctx.restore();
   }

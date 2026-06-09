@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Game, WEAPONS, WEAPON_ORDER, type GameState, type Mode, type PlayerHud, type WeaponId } from "./engine";
 
 const INITIAL: GameState = {
@@ -9,6 +10,7 @@ const INITIAL: GameState = {
   players: [
     {
       health: 100,
+      armor: 0,
       speedKmh: 0,
       onFoot: true,
       alive: true,
@@ -23,6 +25,9 @@ const INITIAL: GameState = {
   running: false,
   gameOver: false,
   pvp: false,
+  policeSearching: false,
+  radioStation: "",
+  radioSong: "",
 };
 
 type Screen = "menu" | "playing" | "over";
@@ -57,7 +62,7 @@ export default function LosSantosGame() {
     });
     gameRef.current = game;
 
-    const blocked = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Slash"];
+    const blocked = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Slash", "KeyR"];
     const down = (e: KeyboardEvent) => {
       if (blocked.includes(e.code)) e.preventDefault();
       game.setKey(e.code, true);
@@ -86,6 +91,9 @@ export default function LosSantosGame() {
   const buyAmmo = useCallback((id: WeaponId, playerIndex?: number) => {
     gameRef.current?.buyAmmo(id, playerIndex);
   }, []);
+  const buyArmor = useCallback((playerIndex?: number) => {
+    gameRef.current?.buyArmor(playerIndex);
+  }, []);
 
   const shoppers = state.players
     .map((p, i) => ({ p, i }))
@@ -104,7 +112,7 @@ export default function LosSantosGame() {
                 ₹{state.cash.toLocaleString("en-IN")}
               </span>
             </div>
-            <div className="flex gap-1 rounded-sm bg-black/45 px-2 py-1 backdrop-blur-sm">
+            <div className={`flex gap-1 rounded-sm bg-black/45 px-2 py-1 backdrop-blur-sm ${state.policeSearching ? "animate-pulse" : ""}`}>
               {Array.from({ length: 5 }).map((_, i) => (
                 <Star key={i} active={i < state.wanted} />
               ))}
@@ -115,9 +123,22 @@ export default function LosSantosGame() {
             </div>
           </div>
 
+          {/* Car Radio overlay */}
+          {state.radioStation && (
+            <div className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-md border border-white/10 bg-black/75 px-5 py-2 text-center backdrop-blur-md shadow-[var(--shadow-neon)] transition-all">
+              <p className="text-[9px] uppercase tracking-[0.25em] text-[#ffc450] font-semibold">Car Radio</p>
+              <h2 className="font-display text-lg uppercase text-white leading-none mt-0.5">{state.radioStation}</h2>
+              {state.radioSong && (
+                <p className="text-[10px] uppercase tracking-wider text-white/70 mt-1 animate-pulse">
+                  🎵 {state.radioSong}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* per-player health panels (top corners) */}
           {state.players.map((p, i) => (
-            <PlayerPanel key={i} index={i} hud={p} coop={state.mode === "coop"} />
+             <PlayerPanel key={i} index={i} hud={p} coop={state.mode === "coop"} />
           ))}
 
           {/* gun shop panel — appears when a player stands on the shop pad */}
@@ -128,6 +149,7 @@ export default function LosSantosGame() {
               coop={state.mode === "coop"}
               onBuyWeapon={buyWeapon}
               onBuyAmmo={buyAmmo}
+              onBuyArmor={buyArmor}
             />
           )}
 
@@ -135,8 +157,8 @@ export default function LosSantosGame() {
           <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-sm bg-black/40 px-3 py-1.5 text-right backdrop-blur-sm">
             <p className="text-[11px] uppercase tracking-widest text-white/60">
               {state.mode === "coop"
-                ? "P1 WASD · F · E · Q swap   |   P2 Arrows · / · Enter · ⇧ swap"
-                : "WASD move · F shoot · E car · Q swap gun"}
+                ? "P1 WASD · F · E · Q swap · R radio   |   P2 Arrows · / · Enter · ⇧ swap"
+                : "WASD move · F shoot · E car · Q swap gun · R radio"}
             </p>
           </div>
         </>
@@ -182,6 +204,19 @@ export default function LosSantosGame() {
               >
                 Local Co-op
               </button>
+              <Link
+                to="/phaser"
+                className="inline-flex w-60 items-center justify-center rounded-md border border-primary/40 bg-primary/20 px-8 py-4 font-display text-xl uppercase tracking-wider text-primary shadow-[var(--shadow-neon)] transition-transform hover:scale-105 active:scale-95 text-center"
+              >
+                Phaser Solo Map
+              </Link>
+              <Link
+                to="/phaser"
+                search={{ mode: "coop" }}
+                className="inline-flex w-60 items-center justify-center rounded-md border border-accent bg-accent/15 px-8 py-4 font-display text-xl uppercase tracking-wider text-accent shadow-[var(--shadow-pink)] transition-transform hover:scale-105 active:scale-95 text-center"
+              >
+                Phaser Co-op Map
+              </Link>
             </div>
 
             <label className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
@@ -217,12 +252,14 @@ function ShopPanel({
   coop,
   onBuyWeapon,
   onBuyAmmo,
+  onBuyArmor,
 }: {
   cash: number;
   shoppers: { p: PlayerHud; i: number }[];
   coop: boolean;
   onBuyWeapon: (id: WeaponId, playerIndex?: number) => void;
   onBuyAmmo: (id: WeaponId, playerIndex?: number) => void;
+  onBuyArmor: (playerIndex?: number) => void;
 }) {
   // In co-op the buyer is chosen; in solo it's always player 0.
   const [buyer, setBuyer] = useState(shoppers[0].i);
@@ -285,6 +322,23 @@ function ShopPanel({
             </div>
           );
         })}
+
+        {/* Kevlar Vest / Body Armor */}
+        <div className="flex items-center justify-between rounded bg-white/5 px-3 py-2 border-t border-white/10 mt-1">
+          <div className="flex flex-col">
+            <span className="font-display text-sm uppercase tracking-wider text-[#39b6ff]">Kevlar Vest</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/45">
+              Armor +100 · Absorbs 75%
+            </span>
+          </div>
+          <button
+            onClick={() => onBuyArmor(coop ? buyer : undefined)}
+            disabled={cash < 1000 || hud.armor >= 100}
+            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-display uppercase tracking-wider text-white disabled:opacity-45"
+          >
+            Buy · ₹1,000
+          </button>
+        </div>
       </div>
       <p className="mt-3 text-center text-[10px] uppercase tracking-widest text-white/40">
         Walk off the pad to close · Q / ⇧ to swap weapon
@@ -323,6 +377,21 @@ function PlayerPanelInner({ index, hud, coop }: { index: number; hud: PlayerHud;
                 );
               })}
             </div>
+            {/* segmented GTA-style armor bar */}
+            {hud.armor > 0 && (
+              <div className="flex h-1.5 w-full gap-0.5 mt-1">
+                {Array.from({ length: 10 }).map((_, i) => {
+                  const filled = hud.armor > i * 10;
+                  return (
+                    <div
+                      key={i}
+                      className="h-full flex-1 transition-colors"
+                      style={{ background: filled ? "#39b6ff" : "rgba(255,255,255,0.08)" }}
+                    />
+                  );
+                })}
+              </div>
+            )}
             <p className="mt-1.5 text-[10px] uppercase tracking-widest text-white/55">
               <span className="text-white/80">{hud.weapon}</span> · Ammo <span className="text-white">{hud.ammo}</span>
             </p>

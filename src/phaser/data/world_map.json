@@ -1,0 +1,195 @@
+{
+  "map_metadata": {
+    "game_title": "Mitti Aur Lahu",
+    "version": "1.1.0",
+    "total_width_px": 20000,
+    "total_height_px": 10000,
+    "tile_size_px": 32,
+    "coordinate_system": "Cartesian (Top-Left 0,0)"
+  },
+  "regions": [
+    {
+      "id": "REG_01",
+      "name": "Navapur",
+      "type": "Starter City",
+      "vibe_color_hex": "#ffc107",
+      "bounds": {
+        "x_min": 0,
+        "y_min": 0,
+        "x_max": 6500,
+        "y_max": 6500
+      },
+      "districts": [
+        {
+          "id": "DIST_NAV_01",
+          "name": "Purana Basti",
+          "risk_multiplier": 1.0,
+          "description": "Labyrinthine alleys and dense low-rise traditional core."
+        },
+        {
+          "id": "DIST_NAV_02",
+          "name": "Mandi Bazaar",
+          "risk_multiplier": 1.2,
+          "description": "High-density trading markets and commercial street grid."
+        },
+        {
+          "id": "DIST_NAV_03",
+          "name": "Shanti Nagar",
+          "risk_multiplier": 1.1,
+          "description": "Working-class residential area containing localized tenement chawls."
+        }
+      ]
+    },
+    {
+      "id": "REG_02",
+      "name": "Indrapuri",
+      "type": "Commercial Capital",
+      "vibe_color_hex": "#00f0ff",
+      "bounds": {
+        "x_min": 7000,
+        "y_min": 2000,
+        "x_max": 14000,
+        "y_max": 10000
+      },
+      "districts": [
+        {
+          "id": "DIST_IND_01",
+          "name": "Downtown Core",
+          "risk_multiplier": 1.5,
+          "description": "Skyscrapers, financial corporate plazas, and wide boulevards."
+        },
+        {
+          "id": "DIST_IND_02",
+          "name": "Vasanth Kunj",
+          "risk_multiplier": 2.0,
+          "description": "High-security luxury residential estates for political and corporate elites."
+        },
+        {
+          "id": "DIST_IND_03",
+          "name": "University District",
+          "risk_multiplier": 1.3,
+          "description": "Colonial-era educational campus grounds and student residential zones."
+        }
+      ]
+    },
+    {
+      "id": "REG_03",
+      "name": "Bandarkhali",
+      "type": "Industrial Port City",
+      "vibe_color_hex": "#6f42c1",
+      "bounds": {
+        "x_min": 14500,
+        "y_min": 0,
+        "x_max": 20000,
+        "y_max": 8500
+      },
+      "districts": [
+        {
+          "id": "DIST_BND_01",
+          "name": "The Factory Zone",
+          "risk_multiplier": 1.8,
+          "description": "Heavy industrial infrastructure, chemical tanks, and production plants."
+        },
+        {
+          "id": "DIST_BND_02",
+          "name": "Azad Nagar",
+          "risk_multiplier": 2.2,
+          "description": "Gritty, high-crime informal settlements housing dock labor syndicates."
+        },
+        {
+          "id": "DIST_BND_03",
+          "name": "The Cargo Docks",
+          "risk_multiplier": 2.5,
+          "description": "Restricted maritime shipping channels, container bays, and gantry yards."
+        }
+      ]
+    }
+  ],
+  "static_locations": [
+    {
+      "id": "LOC_SAFE_01",
+      "type": "SAFEHOUSE",
+      "name": "Chawl Corner Room",
+      "district_id": "DIST_NAV_03",
+      "coordinates": { "x": 1500, "y": 4200 },
+      "interaction_radius": 45,
+      "properties": {
+        "has_weapon_storage": true,
+        "has_garage": false,
+        "spawn_vehicle_id": null
+      }
+    },
+    {
+      "id": "LOC_SAFE_02",
+      "type": "SAFEHOUSE",
+      "name": "Indrapuri Penthouse",
+      "district_id": "DIST_IND_02",
+      "coordinates": { "x": 11500, "y": 3200 },
+      "interaction_radius": 60,
+      "properties": {
+        "has_weapon_storage": true,
+        "has_garage": true,
+        "spawn_vehicle_id": "VEH_SPORTS_01"
+      }
+    },
+    {
+      "id": "LOC_POLICE_HQ",
+      "type": "POLICE_HEADQUARTERS",
+      "name": "Central Police HQ",
+      "district_id": "DIST_IND_01",
+      "coordinates": { "x": 9200, "y": 5100 },
+      "interaction_radius": 80,
+      "properties": {
+        "security_level": "MAXIMUM",
+        "spawn_cop_count": 12
+      }
+    },
+    {
+      "id": "LOC_TOLL_01",
+      "type": "HIGHWAY_CHECKPOINT",
+      "name": "Kisanpur Toll Plaza",
+      "district_id": "DIST_TRANSIT_NH01",
+      "coordinates": { "x": 6800, "y": 2100 },
+      "interaction_radius": 100,
+      "properties": {
+        "has_barrier": true,
+        "toll_fee_inr": 150
+      }
+    }
+  ],
+  "road_nodes": [
+    {
+      "id": "NODE_NH01_START",
+      "coordinates": { "x": 500, "y": 3500 },
+      "connections": ["NODE_NH01_MID"]
+    },
+    {
+      "id": "NODE_NH01_MID",
+      "coordinates": { "x": 6800, "y": 2100 },
+      "connections": ["NODE_NH01_START", "NODE_NH01_EAST"]
+    },
+    {
+      "id": "NODE_NH01_EAST",
+      "coordinates": { "x": 14600, "y": 3800 },
+      "connections": ["NODE_NH01_MID"]
+    }
+  ],
+  "mission_triggers": [
+    {
+      "mission_id": "M_01",
+      "mission_name": "The Daily Grind",
+      "activation_coordinates": { "x": 3200, "y": 3100 },
+      "activation_radius": 50,
+      "required_chapter": 1,
+      "prerequisite_mission_id": null
+    },
+    {
+      "mission_id": "M_05",
+      "mission_name": "Blue Lights",
+      "activation_coordinates": { "x": 2100, "y": 5500 },
+      "activation_radius": 50,
+      "required_chapter": 1,
+      "prerequisite_mission_id": "M_04"
+    }
+  ]
+}
