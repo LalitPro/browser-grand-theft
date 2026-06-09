@@ -1057,6 +1057,39 @@ export class Game {
     }
     ctx.setLineDash([]);
 
+    // gun shop marker (Ammu-Nation): glowing pad + a small kiosk + label
+    {
+      const s = this.shop;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      const pulse = 0.6 + Math.sin(performance.now() / 300) * 0.2;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "rgba(255,196,80,0.18)";
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(255,196,80,0.7)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.stroke();
+      // kiosk
+      ctx.fillStyle = "#23262e";
+      ctx.fillRect(-22, -22, 44, 44);
+      ctx.fillStyle = "#3a3f4a";
+      ctx.fillRect(-22, -22, 44, 12);
+      ctx.fillStyle = "#ffc450";
+      ctx.font = "bold 22px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🔫", 0, 4);
+      ctx.fillStyle = "#ffc450";
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillText("GUN SHOP", 0, -34);
+      ctx.restore();
+    }
+
     // trees
     for (const t of this.trees) {
       ctx.fillStyle = "rgba(0,0,0,0.25)";
