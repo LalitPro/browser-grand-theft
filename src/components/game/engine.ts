@@ -6,6 +6,29 @@
 
 export type Mode = "solo" | "coop";
 
+export type WeaponId = "pistol" | "smg" | "shotgun";
+
+export interface WeaponDef {
+  id: WeaponId;
+  name: string;
+  cd: number; // seconds between shots
+  damage: number;
+  pellets: number;
+  spread: number;
+  speed: number;
+  price: number; // cost to buy the gun
+  ammoPrice: number; // cost per ammo pack
+  ammoPack: number; // rounds per pack
+}
+
+export const WEAPONS: Record<WeaponId, WeaponDef> = {
+  pistol: { id: "pistol", name: "Pistol", cd: 0.28, damage: 24, pellets: 1, spread: 0.05, speed: 820, price: 0, ammoPrice: 80, ammoPack: 36 },
+  smg: { id: "smg", name: "SMG", cd: 0.08, damage: 14, pellets: 1, spread: 0.11, speed: 900, price: 1500, ammoPrice: 200, ammoPack: 90 },
+  shotgun: { id: "shotgun", name: "Shotgun", cd: 0.62, damage: 13, pellets: 6, spread: 0.32, speed: 720, price: 2800, ammoPrice: 300, ammoPack: 24 },
+};
+
+export const WEAPON_ORDER: WeaponId[] = ["pistol", "smg", "shotgun"];
+
 export interface PlayerHud {
   health: number;
   speedKmh: number;
@@ -13,6 +36,10 @@ export interface PlayerHud {
   alive: boolean;
   respawnIn: number;
   ammo: number;
+  weapon: string;
+  weaponId: WeaponId;
+  owned: WeaponId[];
+  nearShop: boolean;
 }
 
 export interface GameState {
@@ -23,6 +50,7 @@ export interface GameState {
   players: PlayerHud[];
   running: boolean;
   gameOver: boolean;
+  pvp: boolean;
 }
 
 type Listener = (s: GameState) => void;
@@ -88,7 +116,11 @@ interface Player {
   shootCd: number;
   enterCd: number;
   color: string;
-  ammo: number;
+  switchCd: number;
+  weapons: WeaponId[];
+  weaponIndex: number;
+  ammo: Record<WeaponId, number>;
+  nearShop: boolean;
   walkPhase: number;
 }
 
@@ -117,6 +149,8 @@ interface Bullet {
   vy: number;
   life: number;
   hostile: boolean;
+  owner: number; // player id, or -1 for cops
+  dmg: number;
 }
 
 interface Pickup {
@@ -185,6 +219,8 @@ export class Game {
 
   private copSpawnCd = 0;
   private escapeTimer = 0; // seconds out of police sight
+  private pvp = false;
+  private shop = { x: 0, y: 0, r: 70 };
 
   state: GameState = this.blankState("solo");
 
@@ -207,10 +243,15 @@ export class Game {
         onFoot: true,
         alive: true,
         respawnIn: 0,
-        ammo: 48,
+        ammo: WEAPONS.pistol.ammoPack,
+        weapon: WEAPONS.pistol.name,
+        weaponId: "pistol" as WeaponId,
+        owned: ["pistol"] as WeaponId[],
+        nearShop: false,
       })),
       running: false,
       gameOver: false,
+      pvp: false,
     };
   }
 
@@ -250,6 +291,10 @@ export class Game {
     for (let i = 0; i < 14; i++) {
       this.pickups.push({ x: rand(ROAD, WORLD_W - ROAD), y: rand(ROAD, WORLD_H - ROAD), taken: false, pulse: rand(0, 6.28) });
     }
+
+    // gun shop (Ammu-Nation) sits on a road corner near the spawn block
+    const shopBlk = this.block(1, 0);
+    this.shop = { x: shopBlk.x - ROAD / 2, y: shopBlk.y + BH / 2, r: 72 };
 
     // dummy pedestrians
     this.peds = [];
@@ -334,9 +379,11 @@ export class Game {
   }
 
   // ---- lifecycle ---------------------------------------------------------
-  start(mode: Mode) {
+  start(mode: Mode, pvp = false) {
     this.mode = mode;
+    this.pvp = mode === "coop" ? pvp : false;
     this.state = this.blankState(mode);
+    this.state.pvp = this.pvp;
     this.buildWorld();
     this.cops = [];
     this.bullets = [];
@@ -365,7 +412,11 @@ export class Game {
         shootCd: 0,
         enterCd: 0,
         color: P_COLORS[i],
-        ammo: 48,
+        switchCd: 0,
+        weapons: ["pistol"],
+        weaponIndex: 0,
+        ammo: { pistol: WEAPONS.pistol.ammoPack, smg: 0, shotgun: 0 },
+        nearShop: false,
         walkPhase: 0,
       });
       this.cams.push({ x: px, y: py, shake: 0 });
@@ -387,6 +438,50 @@ export class Game {
     this.keys[code] = down;
   }
 
+  // ---- shop (buy guns / ammo) -------------------------------------------
+  // playerIndex defaults to the first player currently standing at the shop.
+  private shopPlayer(playerIndex?: number): Player | null {
+    if (playerIndex != null) {
+      const p = this.players[playerIndex];
+      return p && p.alive && p.nearShop ? p : null;
+    }
+    return this.players.find((p) => p.alive && p.nearShop) ?? null;
+  }
+
+  buyWeapon(id: WeaponId, playerIndex?: number): boolean {
+    const p = this.shopPlayer(playerIndex);
+    if (!p) return false;
+    const w = WEAPONS[id];
+    if (p.weapons.includes(id)) return false;
+    if (this.state.cash < w.price) return false;
+    this.state.cash -= w.price;
+    p.weapons.push(id);
+    p.ammo[id] = Math.max(p.ammo[id], w.ammoPack);
+    p.weaponIndex = p.weapons.indexOf(id);
+    this.emit();
+    return true;
+  }
+
+  buyAmmo(id: WeaponId, playerIndex?: number): boolean {
+    const p = this.shopPlayer(playerIndex);
+    if (!p) return false;
+    const w = WEAPONS[id];
+    if (!p.weapons.includes(id)) return false;
+    if (this.state.cash < w.ammoPrice) return false;
+    this.state.cash -= w.ammoPrice;
+    p.ammo[id] += w.ammoPack;
+    this.emit();
+    return true;
+  }
+
+  private curWeaponId(p: Player): WeaponId {
+    return p.weapons[p.weaponIndex] ?? "pistol";
+  }
+
+  private curWeapon(p: Player): WeaponDef {
+    return WEAPONS[this.curWeaponId(p)];
+  }
+
   private emit() {
     this.state.players.forEach((h, i) => {
       const p = this.players[i];
@@ -395,7 +490,12 @@ export class Game {
       h.onFoot = !p.vehicle;
       h.alive = p.alive;
       h.respawnIn = Math.ceil(p.respawnIn);
-      h.ammo = p.ammo;
+      const wid = this.curWeaponId(p);
+      h.ammo = p.ammo[wid];
+      h.weapon = WEAPONS[wid].name;
+      h.weaponId = wid;
+      h.owned = [...p.weapons];
+      h.nearShop = p.nearShop;
       h.speedKmh = p.vehicle ? Math.round(Math.abs(p.vehicle.speed) / 3.2) : 0;
     });
     this.listener({ ...this.state, players: this.state.players.map((p) => ({ ...p })) });
@@ -428,6 +528,7 @@ export class Game {
         right: this.keys["KeyD"],
         shoot: this.keys["KeyF"] || this.keys["Space"],
         enter: this.keys["KeyE"],
+        swap: this.keys["KeyQ"],
       };
     return {
       up: this.keys["ArrowUp"],
@@ -436,6 +537,7 @@ export class Game {
       right: this.keys["ArrowRight"],
       shoot: this.keys["Slash"],
       enter: this.keys["Enter"] || this.keys["NumpadEnter"],
+      swap: this.keys["ShiftRight"] || this.keys["Period"],
     };
   }
 
@@ -509,15 +611,27 @@ export class Game {
     if (sp > 6) p.angle = Math.atan2(p.vy, p.vx);
     p.walkPhase += sp * dt * 0.05;
 
+    // near the gun shop?
+    p.nearShop = Math.hypot(p.x - this.shop.x, p.y - this.shop.y) < this.shop.r;
+
+    // cycle weapon
+    p.switchCd -= dt;
+    if (c.swap && p.switchCd <= 0 && p.weapons.length > 1) {
+      p.switchCd = 0.3;
+      p.weaponIndex = (p.weaponIndex + 1) % p.weapons.length;
+    }
+
     if (c.enter && p.enterCd <= 0) {
       p.enterCd = 0.45;
       this.tryEnter(p);
     }
 
-    if (c.shoot && p.shootCd <= 0 && p.ammo > 0) {
-      p.shootCd = 0.17;
-      p.ammo--;
-      this.fire(p);
+    const w = this.curWeapon(p);
+    const wid = this.curWeaponId(p);
+    if (c.shoot && p.shootCd <= 0 && p.ammo[wid] > 0) {
+      p.shootCd = w.cd;
+      p.ammo[wid]--;
+      this.fire(p, w);
     }
   }
 
@@ -613,17 +727,21 @@ export class Game {
     p.y = v.y + Math.sin(v.angle + Math.PI / 2) * 30;
   }
 
-  private fire(p: Player) {
-    const a = p.angle + rand(-0.04, 0.04);
-    this.bullets.push({
-      x: p.x + Math.cos(a) * 14,
-      y: p.y + Math.sin(a) * 14,
-      vx: Math.cos(a) * 820,
-      vy: Math.sin(a) * 820,
-      life: 0.7,
-      hostile: false,
-    });
-    this.particles.push({ x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,220,120,0.95)", size: 9 });
+  private fire(p: Player, w: WeaponDef) {
+    for (let i = 0; i < w.pellets; i++) {
+      const a = p.angle + rand(-w.spread, w.spread);
+      this.bullets.push({
+        x: p.x + Math.cos(a) * 14,
+        y: p.y + Math.sin(a) * 14,
+        vx: Math.cos(a) * w.speed,
+        vy: Math.sin(a) * w.speed,
+        life: 0.7,
+        hostile: false,
+        owner: p.id,
+        dmg: w.damage,
+      });
+    }
+    this.particles.push({ x: p.x + Math.cos(p.angle) * 16, y: p.y + Math.sin(p.angle) * 16, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,220,120,0.95)", size: 9 });
     this.cams[p.id] && (this.cams[p.id].shake = Math.min(8, this.cams[p.id].shake + 4));
     this.commitCrime();
   }
@@ -631,7 +749,7 @@ export class Game {
   private respawn(p: Player) {
     p.alive = true;
     p.health = 100;
-    p.ammo = 48;
+    p.ammo[this.curWeaponId(p)] = Math.max(p.ammo[this.curWeaponId(p)], WEAPONS.pistol.ammoPack);
     p.vehicle = null;
     p.vx = 0;
     p.vy = 0;
@@ -689,12 +807,30 @@ export class Game {
           if (!e.alive) continue;
           if (Math.hypot(b.x - e.x, b.y - e.y) < 12) {
             b.life = 0;
-            e.health -= 34;
+            e.health -= b.dmg;
             this.blood(e.x, e.y);
             if (e.health <= 0) {
               e.alive = false;
               this.state.cash += 200;
               this.state.score += 150;
+            }
+          }
+        }
+        // PvP: a player's bullet can hit the OTHER player in co-op
+        if (this.pvp && b.life > 0) {
+          for (const p of this.players) {
+            if (!p.alive || p.id === b.owner) continue;
+            const tx = p.vehicle ? p.vehicle.x : p.x;
+            const ty = p.vehicle ? p.vehicle.y : p.y;
+            if (Math.hypot(b.x - tx, b.y - ty) < (p.vehicle ? 20 : 11)) {
+              b.life = 0;
+              p.health -= p.vehicle ? b.dmg * 0.4 : b.dmg;
+              this.blood(b.x, b.y);
+              this.cams[p.id] && (this.cams[p.id].shake = 5);
+              if (p.health <= 0) {
+                this.downPlayer(p);
+                this.state.score += 100;
+              }
             }
           }
         }
@@ -770,14 +906,27 @@ export class Game {
       if (bd < VISION) seen = true;
       e.angle = Math.atan2(ty - e.y, tx - e.x);
       if (bd > 200) {
-        e.x += Math.cos(e.angle) * 210 * dt;
-        e.y += Math.sin(e.angle) * 210 * dt;
+        // move toward the target but slide along building walls (no clipping through)
+        const step = 210 * dt;
+        const nx = e.x + Math.cos(e.angle) * step;
+        const ny = e.y + Math.sin(e.angle) * step;
+        if (!this.collides(nx, e.y, 11)) e.x = nx;
+        else {
+          // try sliding perpendicular to get around the building
+          const sy = e.y + Math.sin(e.angle + Math.PI / 2) * step;
+          if (!this.collides(e.x, sy, 11)) e.y = sy;
+        }
+        if (!this.collides(e.x, ny, 11)) e.y = ny;
+        else {
+          const sx = e.x + Math.cos(e.angle + Math.PI / 2) * step;
+          if (!this.collides(sx, e.y, 11)) e.x = sx;
+        }
       }
       e.shootCd -= dt;
       if (bd < 460 && e.shootCd <= 0) {
         e.shootCd = rand(1, 1.8);
         const a = e.angle + rand(-0.08, 0.08);
-        this.bullets.push({ x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 1, hostile: true });
+        this.bullets.push({ x: e.x + Math.cos(a) * 12, y: e.y + Math.sin(a) * 12, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, life: 1, hostile: true, owner: -1, dmg: 11 });
       }
     }
     this.cops = this.cops.filter((c) => c.alive);
@@ -907,6 +1056,39 @@ export class Game {
       ctx.stroke();
     }
     ctx.setLineDash([]);
+
+    // gun shop marker (Ammu-Nation): glowing pad + a small kiosk + label
+    {
+      const s = this.shop;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      const pulse = 0.6 + Math.sin(performance.now() / 300) * 0.2;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "rgba(255,196,80,0.18)";
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(255,196,80,0.7)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.stroke();
+      // kiosk
+      ctx.fillStyle = "#23262e";
+      ctx.fillRect(-22, -22, 44, 44);
+      ctx.fillStyle = "#3a3f4a";
+      ctx.fillRect(-22, -22, 44, 12);
+      ctx.fillStyle = "#ffc450";
+      ctx.font = "bold 22px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🔫", 0, 4);
+      ctx.fillStyle = "#ffc450";
+      ctx.font = "bold 12px sans-serif";
+      ctx.fillText("GUN SHOP", 0, -34);
+      ctx.restore();
+    }
 
     // trees
     for (const t of this.trees) {
@@ -1137,6 +1319,9 @@ export class Game {
     // cash
     ctx.fillStyle = "#3fcf6a";
     for (const pk of this.pickups) if (!pk.taken) ctx.fillRect(mx + pk.x * scale - 1, my + pk.y * scale - 1, 2, 2);
+    // gun shop
+    ctx.fillStyle = "#ffc450";
+    ctx.fillRect(mx + this.shop.x * scale - 2, my + this.shop.y * scale - 2, 4, 4);
     // cops
     ctx.fillStyle = "#3a6bff";
     for (const e of this.cops) if (e.alive) ctx.fillRect(mx + e.x * scale - 1, my + e.y * scale - 1, 3, 3);
