@@ -438,6 +438,42 @@ export class Game {
     this.keys[code] = down;
   }
 
+  // ---- shop (buy guns / ammo) -------------------------------------------
+  // playerIndex defaults to the first player currently standing at the shop.
+  private shopPlayer(playerIndex?: number): Player | null {
+    if (playerIndex != null) {
+      const p = this.players[playerIndex];
+      return p && p.alive && p.nearShop ? p : null;
+    }
+    return this.players.find((p) => p.alive && p.nearShop) ?? null;
+  }
+
+  buyWeapon(id: WeaponId, playerIndex?: number): boolean {
+    const p = this.shopPlayer(playerIndex);
+    if (!p) return false;
+    const w = WEAPONS[id];
+    if (p.weapons.includes(id)) return false;
+    if (this.state.cash < w.price) return false;
+    this.state.cash -= w.price;
+    p.weapons.push(id);
+    p.ammo[id] = Math.max(p.ammo[id], w.ammoPack);
+    p.weaponIndex = p.weapons.indexOf(id);
+    this.emit();
+    return true;
+  }
+
+  buyAmmo(id: WeaponId, playerIndex?: number): boolean {
+    const p = this.shopPlayer(playerIndex);
+    if (!p) return false;
+    const w = WEAPONS[id];
+    if (!p.weapons.includes(id)) return false;
+    if (this.state.cash < w.ammoPrice) return false;
+    this.state.cash -= w.ammoPrice;
+    p.ammo[id] += w.ammoPack;
+    this.emit();
+    return true;
+  }
+
   private curWeaponId(p: Player): WeaponId {
     return p.weapons[p.weaponIndex] ?? "pistol";
   }
