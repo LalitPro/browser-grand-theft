@@ -771,12 +771,30 @@ export class Game {
           if (!e.alive) continue;
           if (Math.hypot(b.x - e.x, b.y - e.y) < 12) {
             b.life = 0;
-            e.health -= 34;
+            e.health -= b.dmg;
             this.blood(e.x, e.y);
             if (e.health <= 0) {
               e.alive = false;
               this.state.cash += 200;
               this.state.score += 150;
+            }
+          }
+        }
+        // PvP: a player's bullet can hit the OTHER player in co-op
+        if (this.pvp && b.life > 0) {
+          for (const p of this.players) {
+            if (!p.alive || p.id === b.owner) continue;
+            const tx = p.vehicle ? p.vehicle.x : p.x;
+            const ty = p.vehicle ? p.vehicle.y : p.y;
+            if (Math.hypot(b.x - tx, b.y - ty) < (p.vehicle ? 20 : 11)) {
+              b.life = 0;
+              p.health -= p.vehicle ? b.dmg * 0.4 : b.dmg;
+              this.blood(b.x, b.y);
+              this.cams[p.id] && (this.cams[p.id].shake = 5);
+              if (p.health <= 0) {
+                this.downPlayer(p);
+                this.state.score += 100;
+              }
             }
           }
         }
