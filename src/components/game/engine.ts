@@ -116,7 +116,11 @@ interface Player {
   shootCd: number;
   enterCd: number;
   color: string;
-  ammo: number;
+  switchCd: number;
+  weapons: WeaponId[];
+  weaponIndex: number;
+  ammo: Record<WeaponId, number>;
+  nearShop: boolean;
   walkPhase: number;
 }
 
@@ -145,6 +149,8 @@ interface Bullet {
   vy: number;
   life: number;
   hostile: boolean;
+  owner: number; // player id, or -1 for cops
+  dmg: number;
 }
 
 interface Pickup {
