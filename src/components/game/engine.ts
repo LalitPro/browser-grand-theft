@@ -1603,6 +1603,42 @@ export class Game {
     this.loots = this.loots.filter((l) => l.life > 0);
   }
 
+  // ---- Pay'n'Spray: drive a vehicle into the garage to lose the cops --------
+  private updateSpray(dt: number) {
+    this.sprayCd -= dt;
+    for (const p of this.players) {
+      if (!p.alive || !p.vehicle) continue;
+      const v = p.vehicle;
+      // only the driver triggers the spray
+      if (v.occupants[0] !== p.id) continue;
+      const d = Math.hypot(v.x - this.spray.x, v.y - this.spray.y);
+      if (d < this.spray.r && this.sprayCd <= 0) {
+        this.sprayCd = 4;
+        // clear the heat
+        if (this.state.wanted > 0) {
+          this.state.wanted = 0;
+          this.cops = [];
+          this.vehicles = this.vehicles.filter((veh) => veh.type !== "police");
+          this.escapeTimer = 0;
+        }
+        // fresh paint job (new random colour) + patch up occupants
+        const colors = ["#4287f5", "#a83232", "#1ba135", "#7832a8", "#d8c24a", "#46b1c9", "#5cc46a", "#c9603f"];
+        v.color = colors[(Math.random() * colors.length) | 0];
+        v.stolen = false;
+        for (const id of v.occupants) {
+          const occ = this.players[id];
+          if (occ && occ.alive) occ.health = Math.min(100, occ.health + 40);
+        }
+        // spray particles
+        for (let i = 0; i < 14; i++) {
+          const a = rand(0, 6.28);
+          this.particles.push({ x: v.x, y: v.y, vx: Math.cos(a) * 80, vy: Math.sin(a) * 80, life: 0.5, max: 0.5, color: "rgba(120,200,255,0.7)", size: 4 });
+        }
+        this.emit();
+      }
+    }
+  }
+
   private updateTraffic(dt: number) {
     // 1. Update existing traffic cars
     for (const v of this.vehicles) {
