@@ -1007,17 +1007,88 @@ export class Game {
     for (const ped of this.peds) {
       if (!ped.alive) continue;
 
-      if (ped.panicTimer && ped.panicTimer > 0) {
+      // ---------- 1. ARMED THUG that has turned hostile: hunt & shoot ----------
+      if (ped.armed && ped.hostile) {
+        ped.state = "attack";
+        // pick the closest living player as a target
+        let tx = 0;
+        let ty = 0;
+        let bd = Infinity;
+        for (const p of this.players) {
+          if (!p.alive) continue;
+          const px = p.vehicle ? p.vehicle.x : p.x;
+          const py = p.vehicle ? p.vehicle.y : p.y;
+          const d = Math.hypot(px - ped.x, py - ped.y);
+          if (d < bd) {
+            bd = d;
+            tx = px;
+            ty = py;
+            ped.targetId = p.id;
+          }
+        }
+        if (bd !== Infinity) {
+          const ang = Math.atan2(ty - ped.y, tx - ped.x);
+          // close in but keep some distance to shoot
+          const speed = bd > 220 ? 150 : bd < 120 ? -90 : 0;
+          ped.vx = Math.cos(ang) * speed;
+          ped.vy = Math.sin(ang) * speed;
+
+          ped.shootCd = (ped.shootCd ?? 0) - dt;
+          if (bd < 420 && (ped.shootCd ?? 0) <= 0) {
+            ped.shootCd = rand(0.7, 1.4);
+            const a = ang + rand(-0.1, 0.1);
+            this.bullets.push({
+              x: ped.x + Math.cos(a) * 12,
+              y: ped.y + Math.sin(a) * 12,
+              vx: Math.cos(a) * 560,
+              vy: Math.sin(a) * 560,
+              life: 1.0,
+              hostile: true,
+              owner: -2, // armed thug
+              dmg: 9,
+            });
+            this.particles.push({ x: ped.x + Math.cos(a) * 14, y: ped.y + Math.sin(a) * 14, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,200,90,0.9)", size: 7 });
+          }
+        }
+      }
+      // ---------- 2. PANIC / FLEE ----------
+      else if (ped.panicTimer && ped.panicTimer > 0) {
         ped.panicTimer -= dt;
+        ped.state = "panic";
         if (ped.panicFromX != null && ped.panicFromY != null) {
           const ang = Math.atan2(ped.y - ped.panicFromY, ped.x - ped.panicFromX);
-          ped.vx = Math.cos(ang) * 130;
-          ped.vy = Math.sin(ang) * 130;
+          ped.vx = Math.cos(ang) * 150;
+          ped.vy = Math.sin(ang) * 150;
         }
-      } else {
-        if (Math.random() < 0.012) {
-          ped.vx = rand(-26, 26);
-          ped.vy = rand(-26, 26);
+        // panic spreads to nearby calm pedestrians (crowd reaction)
+        for (const o of this.peds) {
+          if (o === ped || !o.alive || (o.panicTimer && o.panicTimer > 0)) continue;
+          if (Math.hypot(o.x - ped.x, o.y - ped.y) < 90) {
+            o.panicTimer = 3.0;
+            o.panicFromX = ped.panicFromX;
+            o.panicFromY = ped.panicFromY;
+          }
+        }
+      }
+      // ---------- 3. NORMAL WANDER (with vehicle-dodge instinct) ----------
+      else {
+        ped.state = "wander";
+        // dive out of the way of nearby fast-moving vehicles
+        let dodged = false;
+        for (const v of this.vehicles) {
+          if (Math.abs(v.speed) < 120) continue;
+          const d = Math.hypot(v.x - ped.x, v.y - ped.y);
+          if (d < 80) {
+            const ang = Math.atan2(ped.y - v.y, ped.x - v.x);
+            ped.vx = Math.cos(ang) * 170;
+            ped.vy = Math.sin(ang) * 170;
+            dodged = true;
+            break;
+          }
+        }
+        if (!dodged && Math.random() < 0.012) {
+          ped.vx = rand(-30, 30);
+          ped.vy = rand(-30, 30);
         }
       }
 
