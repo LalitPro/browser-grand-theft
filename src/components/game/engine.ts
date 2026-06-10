@@ -677,6 +677,7 @@ export class Game {
     this.updateParticles(dt);
     this.updateLoots(dt);
     this.updateTraffic(dt);
+    this.updateSpray(dt);
 
     // cameras (smooth follow + shake decay)
     this.players.forEach((p, i) => {
