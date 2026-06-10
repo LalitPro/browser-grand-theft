@@ -2264,6 +2264,12 @@ export class Game {
     // gun shop
     ctx.fillStyle = "#ffc450";
     ctx.fillRect(mx + this.shop.x * scale - 2, my + this.shop.y * scale - 2, 4, 4);
+    // pay'n'spray garage
+    ctx.fillStyle = "#5aa0ff";
+    ctx.fillRect(mx + this.spray.x * scale - 2, my + this.spray.y * scale - 2, 4, 4);
+    // armed thugs
+    ctx.fillStyle = "#e23b3b";
+    for (const ped of this.peds) if (ped.alive && ped.hostile) ctx.fillRect(mx + ped.x * scale - 1, my + ped.y * scale - 1, 2, 2);
     // cops
     ctx.fillStyle = "#3a6bff";
     for (const e of this.cops) if (e.alive) ctx.fillRect(mx + e.x * scale - 1, my + e.y * scale - 1, 3, 3);
