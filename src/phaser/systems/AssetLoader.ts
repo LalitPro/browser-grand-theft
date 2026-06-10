@@ -177,7 +177,7 @@ export function processTexturesBlackToAlpha(scene: Phaser.Scene): void {
 
     // Re-register as spritesheet with correct frame config
     scene.textures.remove(key);
-    scene.textures.addSpriteSheet(key, cnv, { frameWidth: fw, frameHeight: fh });
+    scene.textures.addSpriteSheet(key, cnv as unknown as HTMLImageElement, { frameWidth: fw, frameHeight: fh });
   });
 }
 

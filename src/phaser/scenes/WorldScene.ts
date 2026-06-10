@@ -370,7 +370,7 @@ export class WorldScene extends Phaser.Scene {
     // Build a small 128x128 grass tile with variation, then tile it across the world
     const tileSize = 128;
     const tileTex = this.add.renderTexture(0, 0, tileSize, tileSize);
-    const tileG = this.make.graphics({ add: false });
+    const tileG = this.make.graphics();
 
     // Base grass green
     tileG.fillStyle(0x4e8c5a, 1);
