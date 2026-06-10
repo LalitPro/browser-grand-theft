@@ -185,9 +185,10 @@ export default function LosSantosGame() {
               </div>
             ) : (
               <p className="mx-auto mt-4 max-w-md text-muted-foreground">
-                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off a crime to
-                trigger a 1-star police chase — then lose them. Play solo or grab a friend for split-screen
-                co-op (you can even share the same car).
+                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off crimes to
+                heat up the cops. Share one car in co-op — the driver drives while the other does drive-bys
+                (swap seats anytime). Watch for armed thugs who shoot back, and duck into the Pay 'n' Spray
+                to lose your wanted level.
               </p>
             )}
 
