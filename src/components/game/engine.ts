@@ -1575,6 +1575,8 @@ export class Game {
             p.health = Math.min(100, p.health + loot.amount);
           } else if (loot.type === "armor") {
             p.armor = Math.min(100, p.armor + loot.amount);
+          } else if (loot.type === "ammo_pistol") {
+            p.ammo.pistol += loot.amount;
           } else if (loot.type === "ammo_smg") {
             p.ammo.smg += loot.amount;
           } else if (loot.type === "ammo_shotgun") {
