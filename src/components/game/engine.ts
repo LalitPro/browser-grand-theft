@@ -129,6 +129,7 @@ interface Player {
   color: string;
   switchCd: number;
   radioCd?: number;
+  seatCd?: number;
   weapons: WeaponId[];
   weaponIndex: number;
   ammo: Record<WeaponId, number>;
@@ -156,6 +157,13 @@ interface Ped {
   panicTimer?: number;
   panicFromX?: number;
   panicFromY?: number;
+  // advanced AI
+  armed?: boolean;       // a thug who can fight back
+  hostile?: boolean;     // currently attacking a player
+  targetId?: number;     // which player the thug is attacking
+  shootCd?: number;
+  health?: number;
+  state?: "wander" | "panic" | "flee" | "attack";
 }
 
 interface Bullet {
@@ -256,6 +264,8 @@ export class Game {
   private escapeTimer = 0; // seconds out of police sight
   private pvp = false;
   private shop = { x: 0, y: 0, r: 70 };
+  private spray = { x: 0, y: 0, r: 78 };
+  private sprayCd = 0;
 
   state: GameState = this.blankState("solo");
 
@@ -334,6 +344,10 @@ export class Game {
     // gun shop (Ammu-Nation) sits on a road corner near the spawn block
     const shopBlk = this.block(1, 0);
     this.shop = { x: shopBlk.x - ROAD / 2, y: shopBlk.y + BH / 2, r: 72 };
+
+    // Pay'n'Spray garage sits on a far road corner — drive in to clear the cops
+    const sprayBlk = this.block(3, 2);
+    this.spray = { x: sprayBlk.x - ROAD / 2, y: sprayBlk.y + BH / 2, r: 80 };
 
     // dummy pedestrians
     this.peds = [];
@@ -437,13 +451,20 @@ export class Game {
 
   private spawnPed(): Ped {
     const colors = ["#e2c08d", "#d98c5f", "#f0d6c2", "#b5e0c2", "#e0b5d4", "#c9a0e0"];
+    // ~22% of pedestrians are armed thugs who fight back when provoked
+    const armed = Math.random() < 0.22;
     return {
       x: rand(ROAD, WORLD_W - ROAD),
       y: rand(ROAD, WORLD_H - ROAD),
       vx: rand(-26, 26),
       vy: rand(-26, 26),
-      color: colors[(Math.random() * colors.length) | 0],
+      color: armed ? "#3a3f4a" : colors[(Math.random() * colors.length) | 0],
       alive: true,
+      armed,
+      hostile: false,
+      shootCd: rand(0.6, 1.6),
+      health: armed ? 45 : 20,
+      state: "wander",
     };
   }
 
@@ -631,6 +652,7 @@ export class Game {
         enter: this.keys["KeyE"],
         swap: this.keys["KeyQ"],
         radio: this.keys["KeyR"],
+        seat: this.keys["KeyC"],
       };
     return {
       up: this.keys["ArrowUp"],
@@ -641,6 +663,7 @@ export class Game {
       enter: this.keys["Enter"] || this.keys["NumpadEnter"],
       swap: this.keys["ShiftRight"] || this.keys["Period"],
       radio: false,
+      seat: this.keys["Comma"],
     };
   }
 
@@ -654,6 +677,7 @@ export class Game {
     this.updateParticles(dt);
     this.updateLoots(dt);
     this.updateTraffic(dt);
+    this.updateSpray(dt);
 
     // cameras (smooth follow + shake decay)
     this.players.forEach((p, i) => {
@@ -816,6 +840,19 @@ export class Game {
           }
         }
       }
+
+      // ---- DRIVE-BY: the driver can shoot straight ahead while driving ----
+      p.shootCd -= dt;
+      const dw = this.curWeapon(p);
+      const dwid = this.curWeaponId(p);
+      if (c.shoot && p.shootCd <= 0 && p.ammo[dwid] > 0) {
+        p.shootCd = dw.cd * 1.25; // slightly slower while driving
+        p.ammo[dwid]--;
+        const savedAngle = p.angle;
+        p.angle = v.angle; // fire in the direction the car points
+        this.fire(p, dw);
+        p.angle = savedAngle;
+      }
     } else {
       // passenger controls aiming & shooting
       let tx = 0;
@@ -842,6 +879,24 @@ export class Game {
         p.ammo[wid]--;
         this.fire(p, w);
       }
+    }
+
+    // ---- SEAT SWAP: when both share a car, swap who drives / who shoots ----
+    p.seatCd = (p.seatCd ?? 0) - dt;
+    if (c.seat && (p.seatCd ?? 0) <= 0 && v.occupants.length > 1) {
+      p.seatCd = 0.5;
+      // rotate occupants so a different player becomes the driver
+      const idx = v.occupants.indexOf(p.id);
+      if (idx === 0) {
+        // driver hands the wheel to the next occupant
+        const next = v.occupants.shift()!;
+        v.occupants.push(next);
+      } else {
+        // a passenger grabs the wheel
+        v.occupants.splice(idx, 1);
+        v.occupants.unshift(p.id);
+      }
+      this.emit();
     }
 
     // all occupants ride along
@@ -933,9 +988,15 @@ export class Game {
     // trigger panic in nearby pedestrians when a shot is fired
     for (const ped of this.peds) {
       if (ped.alive && Math.hypot(ped.x - p.x, ped.y - p.y) < 320) {
-        ped.panicTimer = 5.0;
-        ped.panicFromX = p.x;
-        ped.panicFromY = p.y;
+        if (ped.armed && Math.random() < 0.5) {
+          // some armed thugs are emboldened and turn on the shooter
+          ped.hostile = true;
+          ped.targetId = p.id;
+        } else {
+          ped.panicTimer = 5.0;
+          ped.panicFromX = p.x;
+          ped.panicFromY = p.y;
+        }
       }
     }
 
@@ -959,17 +1020,88 @@ export class Game {
     for (const ped of this.peds) {
       if (!ped.alive) continue;
 
-      if (ped.panicTimer && ped.panicTimer > 0) {
+      // ---------- 1. ARMED THUG that has turned hostile: hunt & shoot ----------
+      if (ped.armed && ped.hostile) {
+        ped.state = "attack";
+        // pick the closest living player as a target
+        let tx = 0;
+        let ty = 0;
+        let bd = Infinity;
+        for (const p of this.players) {
+          if (!p.alive) continue;
+          const px = p.vehicle ? p.vehicle.x : p.x;
+          const py = p.vehicle ? p.vehicle.y : p.y;
+          const d = Math.hypot(px - ped.x, py - ped.y);
+          if (d < bd) {
+            bd = d;
+            tx = px;
+            ty = py;
+            ped.targetId = p.id;
+          }
+        }
+        if (bd !== Infinity) {
+          const ang = Math.atan2(ty - ped.y, tx - ped.x);
+          // close in but keep some distance to shoot
+          const speed = bd > 220 ? 150 : bd < 120 ? -90 : 0;
+          ped.vx = Math.cos(ang) * speed;
+          ped.vy = Math.sin(ang) * speed;
+
+          ped.shootCd = (ped.shootCd ?? 0) - dt;
+          if (bd < 420 && (ped.shootCd ?? 0) <= 0) {
+            ped.shootCd = rand(0.7, 1.4);
+            const a = ang + rand(-0.1, 0.1);
+            this.bullets.push({
+              x: ped.x + Math.cos(a) * 12,
+              y: ped.y + Math.sin(a) * 12,
+              vx: Math.cos(a) * 560,
+              vy: Math.sin(a) * 560,
+              life: 1.0,
+              hostile: true,
+              owner: -2, // armed thug
+              dmg: 9,
+            });
+            this.particles.push({ x: ped.x + Math.cos(a) * 14, y: ped.y + Math.sin(a) * 14, vx: 0, vy: 0, life: 0.05, max: 0.05, color: "rgba(255,200,90,0.9)", size: 7 });
+          }
+        }
+      }
+      // ---------- 2. PANIC / FLEE ----------
+      else if (ped.panicTimer && ped.panicTimer > 0) {
         ped.panicTimer -= dt;
+        ped.state = "panic";
         if (ped.panicFromX != null && ped.panicFromY != null) {
           const ang = Math.atan2(ped.y - ped.panicFromY, ped.x - ped.panicFromX);
-          ped.vx = Math.cos(ang) * 130;
-          ped.vy = Math.sin(ang) * 130;
+          ped.vx = Math.cos(ang) * 150;
+          ped.vy = Math.sin(ang) * 150;
         }
-      } else {
-        if (Math.random() < 0.012) {
-          ped.vx = rand(-26, 26);
-          ped.vy = rand(-26, 26);
+        // panic spreads to nearby calm pedestrians (crowd reaction)
+        for (const o of this.peds) {
+          if (o === ped || !o.alive || (o.panicTimer && o.panicTimer > 0)) continue;
+          if (Math.hypot(o.x - ped.x, o.y - ped.y) < 90) {
+            o.panicTimer = 3.0;
+            o.panicFromX = ped.panicFromX;
+            o.panicFromY = ped.panicFromY;
+          }
+        }
+      }
+      // ---------- 3. NORMAL WANDER (with vehicle-dodge instinct) ----------
+      else {
+        ped.state = "wander";
+        // dive out of the way of nearby fast-moving vehicles
+        let dodged = false;
+        for (const v of this.vehicles) {
+          if (Math.abs(v.speed) < 120) continue;
+          const d = Math.hypot(v.x - ped.x, v.y - ped.y);
+          if (d < 80) {
+            const ang = Math.atan2(ped.y - v.y, ped.x - v.x);
+            ped.vx = Math.cos(ang) * 170;
+            ped.vy = Math.sin(ang) * 170;
+            dodged = true;
+            break;
+          }
+        }
+        if (!dodged && Math.random() < 0.012) {
+          ped.vx = rand(-30, 30);
+          ped.vy = rand(-30, 30);
         }
       }
 
@@ -1088,25 +1220,35 @@ export class Game {
         }
         for (const ped of this.peds) {
           if (!ped.alive) continue;
-          if (Math.hypot(b.x - ped.x, b.y - ped.y) < 8) {
+          if (Math.hypot(b.x - ped.x, b.y - ped.y) < 9) {
             b.life = 0;
-            ped.alive = false;
+            ped.health = (ped.health ?? 20) - b.dmg;
             this.blood(ped.x, ped.y);
-            this.state.score += 20;
-            this.commitCrime(1);
-            this.pedKills = (this.pedKills || 0) + 1;
-            if (this.pedKills % 3 === 0) {
-              this.state.wanted = Math.min(5, this.state.wanted + 1);
+            // armed thugs fight back instead of going down in one hit
+            if (ped.armed && (ped.health ?? 0) > 0) {
+              ped.hostile = true;
+              ped.targetId = b.owner >= 0 ? b.owner : ped.targetId;
+              break;
             }
-            this.loots.push({
-              x: ped.x,
-              y: ped.y,
-              type: Math.random() < 0.2 ? "health" : "cash",
-              amount: Math.random() < 0.5 ? 50 : 100,
-              life: 15,
-              pulse: rand(0, 6.28),
-            });
-            setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
+            if ((ped.health ?? 0) <= 0) {
+              ped.alive = false;
+              this.state.score += ped.armed ? 80 : 20;
+              this.commitCrime(1);
+              this.pedKills = (this.pedKills || 0) + 1;
+              if (this.pedKills % 3 === 0) {
+                this.state.wanted = Math.min(5, this.state.wanted + 1);
+              }
+              this.loots.push({
+                x: ped.x,
+                y: ped.y,
+                type: ped.armed ? (Math.random() < 0.5 ? "ammo_pistol" : "cash") : Math.random() < 0.2 ? "health" : "cash",
+                amount: ped.armed ? 150 : Math.random() < 0.5 ? 50 : 100,
+                life: 15,
+                pulse: rand(0, 6.28),
+              });
+              setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
+            }
+            break;
           }
         }
       }
@@ -1446,6 +1588,8 @@ export class Game {
             p.health = Math.min(100, p.health + loot.amount);
           } else if (loot.type === "armor") {
             p.armor = Math.min(100, p.armor + loot.amount);
+          } else if (loot.type === "ammo_pistol") {
+            p.ammo.pistol += loot.amount;
           } else if (loot.type === "ammo_smg") {
             p.ammo.smg += loot.amount;
           } else if (loot.type === "ammo_shotgun") {
@@ -1457,6 +1601,42 @@ export class Game {
       }
     }
     this.loots = this.loots.filter((l) => l.life > 0);
+  }
+
+  // ---- Pay'n'Spray: drive a vehicle into the garage to lose the cops --------
+  private updateSpray(dt: number) {
+    this.sprayCd -= dt;
+    for (const p of this.players) {
+      if (!p.alive || !p.vehicle) continue;
+      const v = p.vehicle;
+      // only the driver triggers the spray
+      if (v.occupants[0] !== p.id) continue;
+      const d = Math.hypot(v.x - this.spray.x, v.y - this.spray.y);
+      if (d < this.spray.r && this.sprayCd <= 0) {
+        this.sprayCd = 4;
+        // clear the heat
+        if (this.state.wanted > 0) {
+          this.state.wanted = 0;
+          this.cops = [];
+          this.vehicles = this.vehicles.filter((veh) => veh.type !== "police");
+          this.escapeTimer = 0;
+        }
+        // fresh paint job (new random colour) + patch up occupants
+        const colors = ["#4287f5", "#a83232", "#1ba135", "#7832a8", "#d8c24a", "#46b1c9", "#5cc46a", "#c9603f"];
+        v.color = colors[(Math.random() * colors.length) | 0];
+        v.stolen = false;
+        for (const id of v.occupants) {
+          const occ = this.players[id];
+          if (occ && occ.alive) occ.health = Math.min(100, occ.health + 40);
+        }
+        // spray particles
+        for (let i = 0; i < 14; i++) {
+          const a = rand(0, 6.28);
+          this.particles.push({ x: v.x, y: v.y, vx: Math.cos(a) * 80, vy: Math.sin(a) * 80, life: 0.5, max: 0.5, color: "rgba(120,200,255,0.7)", size: 4 });
+        }
+        this.emit();
+      }
+    }
   }
 
   private updateTraffic(dt: number) {
@@ -1673,6 +1853,39 @@ export class Game {
       ctx.restore();
     }
 
+    // Pay'n'Spray garage marker: glowing pad + garage + label
+    {
+      const s = this.spray;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      const pulse = 0.6 + Math.sin(performance.now() / 280) * 0.2;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "rgba(90,160,255,0.18)";
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(90,160,255,0.7)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.stroke();
+      // garage box
+      ctx.fillStyle = "#1f2632";
+      ctx.fillRect(-26, -22, 52, 44);
+      ctx.fillStyle = "#5aa0ff";
+      ctx.fillRect(-26, -22, 52, 12);
+      ctx.fillStyle = "#dfe8f7";
+      ctx.font = "bold 22px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🔧", 0, 6);
+      ctx.fillStyle = "#5aa0ff";
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillText("PAY 'N' SPRAY", 0, -34);
+      ctx.restore();
+    }
+
     // trees
     for (const t of this.trees) {
       ctx.fillStyle = "rgba(0,0,0,0.25)";
@@ -1778,14 +1991,26 @@ export class Game {
     // peds
     for (const ped of this.peds) {
       if (!ped.alive) continue;
-      ctx.fillStyle = "rgba(0,0,0,0.3)";
-      ctx.beginPath();
-      ctx.arc(ped.x + 2, ped.y + 3, 6, 0, 6.28);
-      ctx.fill();
-      ctx.fillStyle = ped.color;
-      ctx.beginPath();
-      ctx.arc(ped.x, ped.y, 6, 0, 6.28);
-      ctx.fill();
+      if (ped.armed) {
+        // armed thug: drawn with a gun, red ring when hostile
+        this.drawPerson(ctx, ped.x, ped.y, Math.atan2(ped.vy, ped.vx) || 0, ped.hostile ? "#c23b3b" : "#3a3f4a", true);
+        if (ped.hostile) {
+          ctx.strokeStyle = "rgba(226,59,59,0.5)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(ped.x, ped.y, 11, 0, 6.28);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath();
+        ctx.arc(ped.x + 2, ped.y + 3, 6, 0, 6.28);
+        ctx.fill();
+        ctx.fillStyle = ped.color;
+        ctx.beginPath();
+        ctx.arc(ped.x, ped.y, 6, 0, 6.28);
+        ctx.fill();
+      }
     }
 
     // parked / empty vehicles
@@ -2039,6 +2264,12 @@ export class Game {
     // gun shop
     ctx.fillStyle = "#ffc450";
     ctx.fillRect(mx + this.shop.x * scale - 2, my + this.shop.y * scale - 2, 4, 4);
+    // pay'n'spray garage
+    ctx.fillStyle = "#5aa0ff";
+    ctx.fillRect(mx + this.spray.x * scale - 2, my + this.spray.y * scale - 2, 4, 4);
+    // armed thugs
+    ctx.fillStyle = "#e23b3b";
+    for (const ped of this.peds) if (ped.alive && ped.hostile) ctx.fillRect(mx + ped.x * scale - 1, my + ped.y * scale - 1, 2, 2);
     // cops
     ctx.fillStyle = "#3a6bff";
     for (const e of this.cops) if (e.alive) ctx.fillRect(mx + e.x * scale - 1, my + e.y * scale - 1, 3, 3);

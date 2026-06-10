@@ -48,7 +48,7 @@ export class StoryManager {
 
     // Spinning/pulsing ground yellow circle
     this.startMarkerGraphics = this.scene.add.graphics();
-    this.startMarkerGraphics.setDepth(5);
+    this.startMarkerGraphics!.setDepth(5);
     
     // "M" text above marker
     this.startMarkerText = this.scene.add.text(mx, my - 25, "M", {

@@ -157,8 +157,8 @@ export default function LosSantosGame() {
           <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-sm bg-black/40 px-3 py-1.5 text-right backdrop-blur-sm">
             <p className="text-[11px] uppercase tracking-widest text-white/60">
               {state.mode === "coop"
-                ? "P1 WASD · F · E · Q swap · R radio   |   P2 Arrows · / · Enter · ⇧ swap"
-                : "WASD move · F shoot · E car · Q swap gun · R radio"}
+                ? "P1 WASD·F·E·Q gun·C seat·R radio  |  P2 Arrows·/·Enter·⇧ gun·, seat"
+                : "WASD · F shoot/drive-by · E car · Q gun · R radio"}
             </p>
           </div>
         </>
@@ -185,9 +185,10 @@ export default function LosSantosGame() {
               </div>
             ) : (
               <p className="mx-auto mt-4 max-w-md text-muted-foreground">
-                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off a crime to
-                trigger a 1-star police chase — then lose them. Play solo or grab a friend for split-screen
-                co-op (you can even share the same car).
+                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off crimes to
+                heat up the cops. Share one car in co-op — the driver drives while the other does drive-bys
+                (swap seats anytime). Watch for armed thugs who shoot back, and duck into the Pay 'n' Spray
+                to lose your wanted level.
               </p>
             )}
 
@@ -232,8 +233,8 @@ export default function LosSantosGame() {
             </label>
 
             <div className="mt-8 grid gap-3 text-left sm:grid-cols-2">
-              <ControlCard player={1} color="text-[#ff6b6b]" rows={[["Move", "W A S D"], ["Shoot", "F / Space"], ["Enter / exit car", "E"]]} />
-              <ControlCard player={2} color="text-[#39b6ff]" rows={[["Move", "Arrow keys"], ["Shoot", "/"], ["Enter / exit car", "Enter"]]} />
+              <ControlCard player={1} color="text-[#ff6b6b]" rows={[["Move", "W A S D"], ["Shoot / drive-by", "F / Space"], ["Enter / exit car", "E"], ["Swap gun / seat", "Q / C"]]} />
+              <ControlCard player={2} color="text-[#39b6ff]" rows={[["Move", "Arrow keys"], ["Shoot / drive-by", "/"], ["Enter / exit car", "Enter"], ["Swap gun / seat", "⇧ / ,"]]} />
             </div>
           </div>
         </div>
