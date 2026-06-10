@@ -233,8 +233,8 @@ export default function LosSantosGame() {
             </label>
 
             <div className="mt-8 grid gap-3 text-left sm:grid-cols-2">
-              <ControlCard player={1} color="text-[#ff6b6b]" rows={[["Move", "W A S D"], ["Shoot", "F / Space"], ["Enter / exit car", "E"]]} />
-              <ControlCard player={2} color="text-[#39b6ff]" rows={[["Move", "Arrow keys"], ["Shoot", "/"], ["Enter / exit car", "Enter"]]} />
+              <ControlCard player={1} color="text-[#ff6b6b]" rows={[["Move", "W A S D"], ["Shoot / drive-by", "F / Space"], ["Enter / exit car", "E"], ["Swap gun / seat", "Q / C"]]} />
+              <ControlCard player={2} color="text-[#39b6ff]" rows={[["Move", "Arrow keys"], ["Shoot / drive-by", "/"], ["Enter / exit car", "Enter"], ["Swap gun / seat", "⇧ / ,"]]} />
             </div>
           </div>
         </div>
