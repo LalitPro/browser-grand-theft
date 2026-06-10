@@ -1207,25 +1207,35 @@ export class Game {
         }
         for (const ped of this.peds) {
           if (!ped.alive) continue;
-          if (Math.hypot(b.x - ped.x, b.y - ped.y) < 8) {
+          if (Math.hypot(b.x - ped.x, b.y - ped.y) < 9) {
             b.life = 0;
-            ped.alive = false;
+            ped.health = (ped.health ?? 20) - b.dmg;
             this.blood(ped.x, ped.y);
-            this.state.score += 20;
-            this.commitCrime(1);
-            this.pedKills = (this.pedKills || 0) + 1;
-            if (this.pedKills % 3 === 0) {
-              this.state.wanted = Math.min(5, this.state.wanted + 1);
+            // armed thugs fight back instead of going down in one hit
+            if (ped.armed && (ped.health ?? 0) > 0) {
+              ped.hostile = true;
+              ped.targetId = b.owner >= 0 ? b.owner : ped.targetId;
+              break;
             }
-            this.loots.push({
-              x: ped.x,
-              y: ped.y,
-              type: Math.random() < 0.2 ? "health" : "cash",
-              amount: Math.random() < 0.5 ? 50 : 100,
-              life: 15,
-              pulse: rand(0, 6.28),
-            });
-            setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
+            if ((ped.health ?? 0) <= 0) {
+              ped.alive = false;
+              this.state.score += ped.armed ? 80 : 20;
+              this.commitCrime(1);
+              this.pedKills = (this.pedKills || 0) + 1;
+              if (this.pedKills % 3 === 0) {
+                this.state.wanted = Math.min(5, this.state.wanted + 1);
+              }
+              this.loots.push({
+                x: ped.x,
+                y: ped.y,
+                type: ped.armed ? (Math.random() < 0.5 ? "ammo_pistol" : "cash") : Math.random() < 0.2 ? "health" : "cash",
+                amount: ped.armed ? 150 : Math.random() < 0.5 ? 50 : 100,
+                life: 15,
+                pulse: rand(0, 6.28),
+              });
+              setTimeout(() => Object.assign(ped, this.spawnPed()), 6000);
+            }
+            break;
           }
         }
       }
