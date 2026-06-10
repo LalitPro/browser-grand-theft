@@ -638,6 +638,7 @@ export class Game {
         enter: this.keys["KeyE"],
         swap: this.keys["KeyQ"],
         radio: this.keys["KeyR"],
+        seat: this.keys["KeyC"],
       };
     return {
       up: this.keys["ArrowUp"],
@@ -648,6 +649,7 @@ export class Game {
       enter: this.keys["Enter"] || this.keys["NumpadEnter"],
       swap: this.keys["ShiftRight"] || this.keys["Period"],
       radio: false,
+      seat: this.keys["Comma"],
     };
   }
 
