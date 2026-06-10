@@ -264,6 +264,8 @@ export class Game {
   private escapeTimer = 0; // seconds out of police sight
   private pvp = false;
   private shop = { x: 0, y: 0, r: 70 };
+  private spray = { x: 0, y: 0, r: 78 };
+  private sprayCd = 0;
 
   state: GameState = this.blankState("solo");
 
@@ -342,6 +344,10 @@ export class Game {
     // gun shop (Ammu-Nation) sits on a road corner near the spawn block
     const shopBlk = this.block(1, 0);
     this.shop = { x: shopBlk.x - ROAD / 2, y: shopBlk.y + BH / 2, r: 72 };
+
+    // Pay'n'Spray garage sits on a far road corner — drive in to clear the cops
+    const sprayBlk = this.block(3, 2);
+    this.spray = { x: sprayBlk.x - ROAD / 2, y: sprayBlk.y + BH / 2, r: 80 };
 
     // dummy pedestrians
     this.peds = [];
