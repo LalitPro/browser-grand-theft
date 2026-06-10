@@ -1853,6 +1853,39 @@ export class Game {
       ctx.restore();
     }
 
+    // Pay'n'Spray garage marker: glowing pad + garage + label
+    {
+      const s = this.spray;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      const pulse = 0.6 + Math.sin(performance.now() / 280) * 0.2;
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "rgba(90,160,255,0.18)";
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(90,160,255,0.7)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.r, 0, 6.28);
+      ctx.stroke();
+      // garage box
+      ctx.fillStyle = "#1f2632";
+      ctx.fillRect(-26, -22, 52, 44);
+      ctx.fillStyle = "#5aa0ff";
+      ctx.fillRect(-26, -22, 52, 12);
+      ctx.fillStyle = "#dfe8f7";
+      ctx.font = "bold 22px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🔧", 0, 6);
+      ctx.fillStyle = "#5aa0ff";
+      ctx.font = "bold 11px sans-serif";
+      ctx.fillText("PAY 'N' SPRAY", 0, -34);
+      ctx.restore();
+    }
+
     // trees
     for (const t of this.trees) {
       ctx.fillStyle = "rgba(0,0,0,0.25)";
