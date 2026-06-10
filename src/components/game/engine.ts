@@ -981,9 +981,15 @@ export class Game {
     // trigger panic in nearby pedestrians when a shot is fired
     for (const ped of this.peds) {
       if (ped.alive && Math.hypot(ped.x - p.x, ped.y - p.y) < 320) {
-        ped.panicTimer = 5.0;
-        ped.panicFromX = p.x;
-        ped.panicFromY = p.y;
+        if (ped.armed && Math.random() < 0.5) {
+          // some armed thugs are emboldened and turn on the shooter
+          ped.hostile = true;
+          ped.targetId = p.id;
+        } else {
+          ped.panicTimer = 5.0;
+          ped.panicFromX = p.x;
+          ped.panicFromY = p.y;
+        }
       }
     }
 
