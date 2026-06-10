@@ -1915,14 +1915,26 @@ export class Game {
     // peds
     for (const ped of this.peds) {
       if (!ped.alive) continue;
-      ctx.fillStyle = "rgba(0,0,0,0.3)";
-      ctx.beginPath();
-      ctx.arc(ped.x + 2, ped.y + 3, 6, 0, 6.28);
-      ctx.fill();
-      ctx.fillStyle = ped.color;
-      ctx.beginPath();
-      ctx.arc(ped.x, ped.y, 6, 0, 6.28);
-      ctx.fill();
+      if (ped.armed) {
+        // armed thug: drawn with a gun, red ring when hostile
+        this.drawPerson(ctx, ped.x, ped.y, Math.atan2(ped.vy, ped.vx) || 0, ped.hostile ? "#c23b3b" : "#3a3f4a", true);
+        if (ped.hostile) {
+          ctx.strokeStyle = "rgba(226,59,59,0.5)";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(ped.x, ped.y, 11, 0, 6.28);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.beginPath();
+        ctx.arc(ped.x + 2, ped.y + 3, 6, 0, 6.28);
+        ctx.fill();
+        ctx.fillStyle = ped.color;
+        ctx.beginPath();
+        ctx.arc(ped.x, ped.y, 6, 0, 6.28);
+        ctx.fill();
+      }
     }
 
     // parked / empty vehicles
