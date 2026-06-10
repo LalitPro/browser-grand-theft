@@ -156,6 +156,13 @@ interface Ped {
   panicTimer?: number;
   panicFromX?: number;
   panicFromY?: number;
+  // advanced AI
+  armed?: boolean;       // a thug who can fight back
+  hostile?: boolean;     // currently attacking a player
+  targetId?: number;     // which player the thug is attacking
+  shootCd?: number;
+  health?: number;
+  state?: "wander" | "panic" | "flee" | "attack";
 }
 
 interface Bullet {
