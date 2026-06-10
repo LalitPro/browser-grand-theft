@@ -826,6 +826,19 @@ export class Game {
           }
         }
       }
+
+      // ---- DRIVE-BY: the driver can shoot straight ahead while driving ----
+      p.shootCd -= dt;
+      const dw = this.curWeapon(p);
+      const dwid = this.curWeaponId(p);
+      if (c.shoot && p.shootCd <= 0 && p.ammo[dwid] > 0) {
+        p.shootCd = dw.cd * 1.25; // slightly slower while driving
+        p.ammo[dwid]--;
+        const savedAngle = p.angle;
+        p.angle = v.angle; // fire in the direction the car points
+        this.fire(p, dw);
+        p.angle = savedAngle;
+      }
     } else {
       // passenger controls aiming & shooting
       let tx = 0;
@@ -852,6 +865,24 @@ export class Game {
         p.ammo[wid]--;
         this.fire(p, w);
       }
+    }
+
+    // ---- SEAT SWAP: when both share a car, swap who drives / who shoots ----
+    p.seatCd = (p.seatCd ?? 0) - dt;
+    if (c.seat && (p.seatCd ?? 0) <= 0 && v.occupants.length > 1) {
+      p.seatCd = 0.5;
+      // rotate occupants so a different player becomes the driver
+      const idx = v.occupants.indexOf(p.id);
+      if (idx === 0) {
+        // driver hands the wheel to the next occupant
+        const next = v.occupants.shift()!;
+        v.occupants.push(next);
+      } else {
+        // a passenger grabs the wheel
+        v.occupants.splice(idx, 1);
+        v.occupants.unshift(p.id);
+      }
+      this.emit();
     }
 
     // all occupants ride along
