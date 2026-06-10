@@ -157,8 +157,8 @@ export default function LosSantosGame() {
           <div className="pointer-events-none absolute right-4 bottom-4 z-10 rounded-sm bg-black/40 px-3 py-1.5 text-right backdrop-blur-sm">
             <p className="text-[11px] uppercase tracking-widest text-white/60">
               {state.mode === "coop"
-                ? "P1 WASD · F · E · Q swap · R radio   |   P2 Arrows · / · Enter · ⇧ swap"
-                : "WASD move · F shoot · E car · Q swap gun · R radio"}
+                ? "P1 WASD·F·E·Q gun·C seat·R radio  |  P2 Arrows·/·Enter·⇧ gun·, seat"
+                : "WASD · F shoot/drive-by · E car · Q gun · R radio"}
             </p>
           </div>
         </>
