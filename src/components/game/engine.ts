@@ -445,13 +445,20 @@ export class Game {
 
   private spawnPed(): Ped {
     const colors = ["#e2c08d", "#d98c5f", "#f0d6c2", "#b5e0c2", "#e0b5d4", "#c9a0e0"];
+    // ~22% of pedestrians are armed thugs who fight back when provoked
+    const armed = Math.random() < 0.22;
     return {
       x: rand(ROAD, WORLD_W - ROAD),
       y: rand(ROAD, WORLD_H - ROAD),
       vx: rand(-26, 26),
       vy: rand(-26, 26),
-      color: colors[(Math.random() * colors.length) | 0],
+      color: armed ? "#3a3f4a" : colors[(Math.random() * colors.length) | 0],
       alive: true,
+      armed,
+      hostile: false,
+      shootCd: rand(0.6, 1.6),
+      health: armed ? 45 : 20,
+      state: "wander",
     };
   }
 
