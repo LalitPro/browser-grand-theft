@@ -129,6 +129,7 @@ interface Player {
   color: string;
   switchCd: number;
   radioCd?: number;
+  seatCd?: number;
   weapons: WeaponId[];
   weaponIndex: number;
   ammo: Record<WeaponId, number>;
