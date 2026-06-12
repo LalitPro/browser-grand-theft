@@ -294,6 +294,53 @@ function PhaserPage() {
           </div>
         </div>
       )}
+
+      {/* Gun Shop Panel */}
+      {stats.shopOpen && (
+        <div className="pointer-events-auto absolute left-1/2 top-1/2 z-30 w-[340px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#ff4d4d]/40 bg-black/90 p-4 backdrop-blur-md shadow-[0_8px_40px_rgba(0,0,0,0.7)]">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-display text-lg uppercase tracking-wider text-[#ff4d4d]">Gun Shop</h2>
+            <span className="font-display text-sm text-[#7bd88f]">₹{stats.cash.toLocaleString("en-IN")}</span>
+          </div>
+          <div className="space-y-2">
+            {[
+              { id: "pistol", label: "Pistol Ammo", pack: 60, price: 500 },
+              { id: "smg", label: "SMG", pack: 90, price: 1200 },
+              { id: "shotgun", label: "Shotgun", pack: 24, price: 1500 },
+            ].map((w) => (
+              <button
+                key={w.id}
+                onClick={() => sceneRef.current?.buyAmmo(w.id)}
+                disabled={stats.cash < w.price}
+                className="flex w-full items-center justify-between rounded border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-[#ff4d4d]/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <span className="text-sm font-semibold text-white">
+                  {w.label}
+                  {!stats.shopOwned.includes(w.id) && (
+                    <span className="ml-1.5 rounded bg-[#ffc450]/20 px-1 text-[9px] uppercase text-[#ffc450]">new</span>
+                  )}
+                  <span className="ml-2 text-[10px] text-white/40">have {stats.shopAmmo[w.id] ?? 0}</span>
+                </span>
+                <span className="text-xs">
+                  <span className="text-white/50">+{w.pack}</span>{" "}
+                  <span className="font-bold text-[#7bd88f]">₹{w.price}</span>
+                </span>
+              </button>
+            ))}
+            <button
+              onClick={() => sceneRef.current?.buyArmor()}
+              disabled={stats.cash < 2000}
+              className="flex w-full items-center justify-between rounded border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-[#39b6ff]/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span className="text-sm font-semibold text-white">Body Armor</span>
+              <span className="font-bold text-[#7bd88f] text-xs">₹2,000</span>
+            </button>
+          </div>
+          <p className="mt-3 text-center text-[10px] uppercase tracking-widest text-white/40">
+            Walk away to close
+          </p>
+        </div>
+      )}
     </div>
   );
 }
