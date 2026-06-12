@@ -26,6 +26,7 @@ export const Route = createFileRoute("/phaser")({
 function PhaserPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<any>(null);
+  const sceneRef = useRef<any>(null);
   const [stats, setStats] = useState({
     cash: 1000,
     score: 0,
@@ -35,12 +36,18 @@ function PhaserPage() {
     p1Health: 100,
     p1Armor: 0,
     p1Weapon: "pistol",
+    p1Ammo: 0,
     p2Health: 0,
     p2Armor: 0,
     p2Weapon: "pistol",
+    p2Ammo: 0,
     activeSubtitle: "",
     activeSubtitleSub: "",
-    activeObjective: ""
+    activeObjective: "",
+    sideObjective: "",
+    shopOpen: false,
+    shopAmmo: {} as Record<string, number>,
+    shopOwned: [] as string[],
   });
 
   useEffect(() => {
@@ -59,6 +66,7 @@ function PhaserPage() {
       const interval = setInterval(() => {
         if (!gameInstance || !gameInstance.scene || !gameInstance.scene.scenes[0]) return;
         const scene = gameInstance.scene.scenes[0];
+        sceneRef.current = scene;
         if (scene && scene.player) {
           let currentDistrict = "Kisanpur Rural";
           const px = scene.player.sprite.x;
@@ -75,6 +83,8 @@ function PhaserPage() {
           const isCoopVal = scene.registry.get("isCoop");
           const p1 = scene.player;
           const p2 = scene.player2;
+          const p1Weapon = p1 ? p1.weapons[p1.weaponIndex] : "pistol";
+          const p2Weapon = p2 ? p2.weapons[p2.weaponIndex] : "pistol";
 
           setStats({
             cash: scene.cash || 0,
@@ -84,13 +94,19 @@ function PhaserPage() {
             isCoop: !!isCoopVal,
             p1Health: p1 ? p1.health : 100,
             p1Armor: p1 ? p1.armor : 0,
-            p1Weapon: p1 ? p1.weapons[p1.weaponIndex] : "pistol",
+            p1Weapon,
+            p1Ammo: p1 ? (p1.ammo?.[p1Weapon] ?? 0) : 0,
             p2Health: p2 ? p2.health : 0,
             p2Armor: p2 ? p2.armor : 0,
-            p2Weapon: p2 ? p2.weapons[p2.weaponIndex] : "pistol",
+            p2Weapon,
+            p2Ammo: p2 ? (p2.ammo?.[p2Weapon] ?? 0) : 0,
             activeSubtitle: scene.activeSubtitle || "",
             activeSubtitleSub: scene.activeSubtitleSub || "",
-            activeObjective: scene.activeObjective || ""
+            activeObjective: scene.activeObjective || "",
+            sideObjective: scene.activeSideObjective || "",
+            shopOpen: !!scene.shopState?.open,
+            shopAmmo: scene.shopState?.ammo || {},
+            shopOwned: scene.shopState?.owned || [],
           });
         }
       }, 250);
