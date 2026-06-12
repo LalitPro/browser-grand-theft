@@ -171,25 +171,9 @@ export class Player {
           this.sprite.rotation = this.currentVehicle.sprite.rotation - Math.PI / 2;
         }
 
-        // Firing from vehicle
-        const weapon = this.weapons[this.weaponIndex];
-        let cd = 250;
-        if (weapon === "smg") cd = 90;
-        if (weapon === "shotgun") cd = 650;
-
-        if ((this.keys.shoot.isDown || this.keys.space.isDown) && this.scene.time.now - (this.sprite.lastShot || 0) > cd) {
-          this.sprite.lastShot = this.scene.time.now;
-          
-          const angle = this.sprite.rotation;
-          if (weapon === "shotgun") {
-            for (let i = -2; i <= 2; i++) {
-              this.scene.fireBullet(this.sprite.x, this.sprite.y, angle + i * 0.12, false);
-            }
-          } else if (weapon === "smg") {
-            this.scene.fireBullet(this.sprite.x, this.sprite.y, angle + (Math.random() - 0.5) * 0.15, false);
-          } else {
-            this.scene.fireBullet(this.sprite.x, this.sprite.y, angle, false);
-          }
+        // Firing from vehicle (drive-by)
+        if (this.keys.shoot.isDown || this.keys.space.isDown) {
+          this.fireWeapon(this.sprite.rotation);
         }
       } else {
         // Driver is hidden inside the vehicle
@@ -270,32 +254,51 @@ export class Player {
       this.scene.showCrimeBanner(`Selected Weapon: ${this.weapons[this.weaponIndex].toUpperCase()}`);
     }
 
-    // Shooting
-    const weapon = this.weapons[this.weaponIndex];
-    let cd = 250;
-    if (weapon === "smg") cd = 90;
-    if (weapon === "shotgun") cd = 650;
-
-    if ((this.keys.shoot.isDown || this.keys.space.isDown) && this.scene.time.now - (this.sprite.lastShot || 0) > cd) {
-      this.sprite.lastShot = this.scene.time.now;
-      
-      const angle = this.sprite.rotation;
-      if (weapon === "shotgun") {
-        for (let i = -2; i <= 2; i++) {
-          const spreadAngle = angle + i * 0.12;
-          this.scene.fireBullet(this.sprite.x, this.sprite.y, spreadAngle, false);
-        }
-      } else if (weapon === "smg") {
-        const spreadAngle = angle + (Math.random() - 0.5) * 0.15;
-        this.scene.fireBullet(this.sprite.x, this.sprite.y, spreadAngle, false);
-      } else {
-        this.scene.fireBullet(this.sprite.x, this.sprite.y, angle, false);
-      }
+    // Shooting on foot
+    this.emptyMsgCd -= dt;
+    if (this.keys.shoot.isDown || this.keys.space.isDown) {
+      this.fireWeapon(this.sprite.rotation);
     }
 
     // Try enter vehicle
     if (this.keys.enter.isDown && this.enterKeyCd <= 0) {
       this.tryEnterVehicle();
+    }
+  }
+
+  // Centralized weapon firing with ammo + fire-rate handling
+  public fireWeapon(angle: number) {
+    const weapon = this.weapons[this.weaponIndex];
+    let cd = 250;
+    if (weapon === "smg") cd = 90;
+    if (weapon === "shotgun") cd = 650;
+
+    if (this.scene.time.now - (this.sprite.lastShot || 0) <= cd) return;
+
+    if ((this.ammo[weapon] ?? 0) <= 0) {
+      // Out of ammo — auto-fallback to pistol if it still has rounds
+      if (weapon !== "pistol" && (this.ammo["pistol"] ?? 0) > 0) {
+        this.weaponIndex = this.weapons.indexOf("pistol");
+        return;
+      }
+      if (this.emptyMsgCd <= 0) {
+        this.emptyMsgCd = 1.5;
+        this.scene.showCrimeBanner(`Out of ${weapon.toUpperCase()} ammo — buy more at the Gun Shop`);
+      }
+      return;
+    }
+
+    this.sprite.lastShot = this.scene.time.now;
+    this.ammo[weapon] = Math.max(0, this.ammo[weapon] - 1);
+
+    if (weapon === "shotgun") {
+      for (let i = -2; i <= 2; i++) {
+        this.scene.fireBullet(this.sprite.x, this.sprite.y, angle + i * 0.12, false);
+      }
+    } else if (weapon === "smg") {
+      this.scene.fireBullet(this.sprite.x, this.sprite.y, angle + (Math.random() - 0.5) * 0.15, false);
+    } else {
+      this.scene.fireBullet(this.sprite.x, this.sprite.y, angle, false);
     }
   }
 
