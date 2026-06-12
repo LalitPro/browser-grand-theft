@@ -26,6 +26,7 @@ export const Route = createFileRoute("/phaser")({
 function PhaserPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<any>(null);
+  const sceneRef = useRef<any>(null);
   const [stats, setStats] = useState({
     cash: 1000,
     score: 0,
@@ -35,12 +36,18 @@ function PhaserPage() {
     p1Health: 100,
     p1Armor: 0,
     p1Weapon: "pistol",
+    p1Ammo: 0,
     p2Health: 0,
     p2Armor: 0,
     p2Weapon: "pistol",
+    p2Ammo: 0,
     activeSubtitle: "",
     activeSubtitleSub: "",
-    activeObjective: ""
+    activeObjective: "",
+    sideObjective: "",
+    shopOpen: false,
+    shopAmmo: {} as Record<string, number>,
+    shopOwned: [] as string[],
   });
 
   useEffect(() => {
@@ -59,6 +66,7 @@ function PhaserPage() {
       const interval = setInterval(() => {
         if (!gameInstance || !gameInstance.scene || !gameInstance.scene.scenes[0]) return;
         const scene = gameInstance.scene.scenes[0];
+        sceneRef.current = scene;
         if (scene && scene.player) {
           let currentDistrict = "Kisanpur Rural";
           const px = scene.player.sprite.x;
@@ -75,6 +83,8 @@ function PhaserPage() {
           const isCoopVal = scene.registry.get("isCoop");
           const p1 = scene.player;
           const p2 = scene.player2;
+          const p1Weapon = p1 ? p1.weapons[p1.weaponIndex] : "pistol";
+          const p2Weapon = p2 ? p2.weapons[p2.weaponIndex] : "pistol";
 
           setStats({
             cash: scene.cash || 0,
@@ -84,13 +94,19 @@ function PhaserPage() {
             isCoop: !!isCoopVal,
             p1Health: p1 ? p1.health : 100,
             p1Armor: p1 ? p1.armor : 0,
-            p1Weapon: p1 ? p1.weapons[p1.weaponIndex] : "pistol",
+            p1Weapon,
+            p1Ammo: p1 ? (p1.ammo?.[p1Weapon] ?? 0) : 0,
             p2Health: p2 ? p2.health : 0,
             p2Armor: p2 ? p2.armor : 0,
-            p2Weapon: p2 ? p2.weapons[p2.weaponIndex] : "pistol",
+            p2Weapon,
+            p2Ammo: p2 ? (p2.ammo?.[p2Weapon] ?? 0) : 0,
             activeSubtitle: scene.activeSubtitle || "",
             activeSubtitleSub: scene.activeSubtitleSub || "",
-            activeObjective: scene.activeObjective || ""
+            activeObjective: scene.activeObjective || "",
+            sideObjective: scene.activeSideObjective || "",
+            shopOpen: !!scene.shopState?.open,
+            shopAmmo: scene.shopState?.ammo || {},
+            shopOwned: scene.shopState?.owned || [],
           });
         }
       }, 250);
@@ -156,6 +172,8 @@ function PhaserPage() {
             )}
             <p className="text-[9px] uppercase tracking-wider text-white/60 mt-1.5">
               Gun: <span className="text-white font-bold">{stats.p1Weapon.toUpperCase()}</span>
+              <span className="ml-2 text-[#ffc450] font-bold">{stats.p1Ammo}</span>
+              <span className="text-white/40"> rounds</span>
             </p>
           </div>
         </div>
@@ -196,6 +214,21 @@ function PhaserPage() {
             </div>
           )}
 
+          {/* Side Mission Objective Panel */}
+          {stats.sideObjective && (
+            <div className="rounded border-l-4 border-l-[#22d3ee] border-y border-r border-white/10 bg-black/75 p-3 backdrop-blur-md text-left w-64 pointer-events-auto shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="flex h-1.5 w-1.5 rounded-full bg-[#22d3ee] animate-ping" />
+                <p className="text-[9px] uppercase tracking-widest text-[#22d3ee] font-bold">
+                  Side Mission
+                </p>
+              </div>
+              <p className="text-xs font-medium text-white/90 leading-relaxed font-sans">
+                {stats.sideObjective}
+              </p>
+            </div>
+          )}
+
           {/* P2 Health & Armor Bar */}
           {stats.isCoop && (
             <div className="rounded bg-black/60 p-2.5 border border-white/10 text-white backdrop-blur-md w-48 text-left pointer-events-auto mt-1">
@@ -220,6 +253,8 @@ function PhaserPage() {
               )}
               <p className="text-[9px] uppercase tracking-wider text-white/60 mt-1.5">
                 Gun: <span className="text-white font-bold">{stats.p2Weapon.toUpperCase()}</span>
+                <span className="ml-2 text-[#39b6ff] font-bold">{stats.p2Ammo}</span>
+                <span className="text-white/40"> rounds</span>
               </p>
             </div>
           )}
@@ -242,6 +277,9 @@ function PhaserPage() {
         <p className="text-[10px] uppercase tracking-wider text-white/70 mt-1 border-t border-white/10 pt-1">
           Cheats: <span className="text-[#ff4d4d] font-bold">K</span> Wanted Up | <span className="text-[#7bd88f] font-bold">L</span> Wanted Clear
         </p>
+        <p className="text-[10px] uppercase tracking-wider text-white/70 mt-1 border-t border-white/10 pt-1">
+          <span className="text-[#22d3ee] font-bold">T</span> Start Side Mission (cyan blip) | Walk onto red pad for <span className="text-[#ff4d4d] font-bold">Gun Shop</span>
+        </p>
       </div>
 
       {/* Subtitles Overlay */}
@@ -257,6 +295,53 @@ function PhaserPage() {
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Gun Shop Panel */}
+      {stats.shopOpen && (
+        <div className="pointer-events-auto absolute left-1/2 top-1/2 z-30 w-[340px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#ff4d4d]/40 bg-black/90 p-4 backdrop-blur-md shadow-[0_8px_40px_rgba(0,0,0,0.7)]">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-display text-lg uppercase tracking-wider text-[#ff4d4d]">Gun Shop</h2>
+            <span className="font-display text-sm text-[#7bd88f]">₹{stats.cash.toLocaleString("en-IN")}</span>
+          </div>
+          <div className="space-y-2">
+            {[
+              { id: "pistol", label: "Pistol Ammo", pack: 60, price: 500 },
+              { id: "smg", label: "SMG", pack: 90, price: 1200 },
+              { id: "shotgun", label: "Shotgun", pack: 24, price: 1500 },
+            ].map((w) => (
+              <button
+                key={w.id}
+                onClick={() => sceneRef.current?.buyAmmo(w.id)}
+                disabled={stats.cash < w.price}
+                className="flex w-full items-center justify-between rounded border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-[#ff4d4d]/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <span className="text-sm font-semibold text-white">
+                  {w.label}
+                  {!stats.shopOwned.includes(w.id) && (
+                    <span className="ml-1.5 rounded bg-[#ffc450]/20 px-1 text-[9px] uppercase text-[#ffc450]">new</span>
+                  )}
+                  <span className="ml-2 text-[10px] text-white/40">have {stats.shopAmmo[w.id] ?? 0}</span>
+                </span>
+                <span className="text-xs">
+                  <span className="text-white/50">+{w.pack}</span>{" "}
+                  <span className="font-bold text-[#7bd88f]">₹{w.price}</span>
+                </span>
+              </button>
+            ))}
+            <button
+              onClick={() => sceneRef.current?.buyArmor()}
+              disabled={stats.cash < 2000}
+              className="flex w-full items-center justify-between rounded border border-white/10 bg-white/5 px-3 py-2 text-left transition-colors hover:bg-[#39b6ff]/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <span className="text-sm font-semibold text-white">Body Armor</span>
+              <span className="font-bold text-[#7bd88f] text-xs">₹2,000</span>
+            </button>
+          </div>
+          <p className="mt-3 text-center text-[10px] uppercase tracking-widest text-white/40">
+            Walk away to close
+          </p>
         </div>
       )}
     </div>

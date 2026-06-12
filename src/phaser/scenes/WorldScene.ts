@@ -12,6 +12,7 @@ import { MinimapSystem } from "../systems/MinimapSystem";
 import { OptimizationSystem } from "../systems/OptimizationSystem";
 import { CameraManager } from "../systems/CameraManager";
 import { StoryManager } from "../systems/StoryManager";
+import { SideMissionSystem } from "../systems/SideMissionSystem";
 import { preloadAssets, processTexturesBlackToAlpha, getCharFrame } from "../systems/AssetLoader";
 
 export class WorldScene extends Phaser.Scene {
@@ -42,6 +43,22 @@ export class WorldScene extends Phaser.Scene {
   public activeSubtitleSub = "";
   public activeObjective = "";
   public storyManager?: StoryManager;
+
+  // Side missions
+  public sideMissionSystem?: SideMissionSystem;
+  public activeSideObjective = "";
+
+  // GPS route line graphics
+  private gpsGraphics?: Phaser.GameObjects.Graphics;
+
+  // Gun shop state (read by the React HUD)
+  public shopState: {
+    open: boolean;
+    cash: number;
+    owned: string[];
+    ammo: Record<string, number>;
+  } = { open: false, cash: 0, owned: [], ammo: {} };
+  private shopZones: { x: number; y: number; r: number }[] = [];
 
   // Groups
   public bullets!: Phaser.Physics.Arcade.Group;
@@ -119,6 +136,19 @@ export class WorldScene extends Phaser.Scene {
     this.setupMinimapLocations();
     this.setupDynamicJsonTriggers();
 
+    // Side missions (available in solo & co-op, tracks Player 1)
+    this.sideMissionSystem = new SideMissionSystem(this);
+    this.setupGunShops();
+
+    // GPS route line graphic (world space — shows on main + minimap)
+    this.gpsGraphics = this.add.graphics();
+    this.gpsGraphics.setDepth(3);
+
+    this.events.once("shutdown", () => {
+      this.sideMissionSystem?.destroy();
+      this.sideMissionSystem = undefined;
+    });
+
     // Bullet overlaps — hostile bullets hurt players, player bullets hurt NPCs
     // In co-op: player bullets can also hurt the OTHER player (friendly fire)
     this.physics.add.overlap(this.bullets, this.player.sprite, this.handleBulletHitPlayer, undefined, this);
@@ -193,6 +223,15 @@ export class WorldScene extends Phaser.Scene {
       undefined,
       this
     );
+
+    // Vehicle runs over a cop at speed (kill cop)
+    this.physics.add.overlap(
+      this.vehiclesPhysicsGroup,
+      this.copsPhysicsGroup,
+      this.handleVehicleRamCop,
+      undefined,
+      this
+    );
     
     // Key press for resetting wanted level for convenience
     if (this.input.keyboard) {
@@ -214,6 +253,11 @@ export class WorldScene extends Phaser.Scene {
 
     if (this.storyManager) {
       this.storyManager.update(dt);
+    }
+
+    if (this.sideMissionSystem) {
+      this.sideMissionSystem.update(dt);
+      this.activeSideObjective = this.sideMissionSystem.objectiveText;
     }
 
     // 1. Update entities
@@ -350,6 +394,10 @@ export class WorldScene extends Phaser.Scene {
     this.optimizationSystem.update(targetX, targetY);
     this.spawnSystem.update(targetX, targetY, this.time.now);
     this.minimapSystem.updateBlips(targetX, targetY);
+
+    // GPS route + gun shop proximity
+    this.updateGps();
+    this.updateShopProximity();
 
     // 4. Clean active bullets
     this.bullets.getChildren().forEach((b: any) => {
@@ -683,11 +731,36 @@ export class WorldScene extends Phaser.Scene {
       this.showCrimeBanner(`NPC car hit you! -${dmg} HP`);
     } else {
       // Player-driven vehicle rams the other player: partial damage
-      const dmg = Math.min(25, Math.floor(speed * 0.1));
+      // High-speed rams are lethal (GTA-style road kill); slow taps just hurt.
+      const dmg = speed > 120 ? 100 : Math.min(45, Math.floor(speed * 0.25));
       hitPlayer.takeDamage(dmg);
-      this.cameras.main.shake(150, 0.007);
-      this.showCrimeBanner(`Ram! -${dmg} HP`);
+      this.cameras.main.shake(180, 0.009);
+      this.showCrimeBanner(dmg >= 100 ? "Splattered the other player!" : `Ram! -${dmg} HP`);
     }
+  }
+
+  // ─── Vehicle runs over a COP at speed (kill) ─────────────────────────────────
+  private handleVehicleRamCop(vehicleSprite: any, copSprite: any) {
+    const vehicle = vehicleSprite.getData("vehicleClass") as Vehicle;
+    if (!vehicle || vehicle.isWrecked) return;
+    // Only player-driven cars score kills; NPC traffic shouldn't farm cops
+    if (vehicle.isNpcTraffic && !vehicle.driver) return;
+    if (Math.abs(vehicle.speed) < 90) return;
+
+    const cop = this.policeSystem.spawnedCops.find((c: any) => c.sprite === copSprite);
+    if (!cop) return;
+    // Don't run over armored vehicles on foot-cop logic
+    if (cop.type === "cruiser" || cop.type === "apc") return;
+
+    const vis = copSprite.getData("visualSprite");
+    if (vis && vis.active) vis.destroy();
+    copSprite.destroy();
+    this.policeSystem.spawnedCops = this.policeSystem.spawnedCops.filter((c: any) => c !== cop);
+    this.wantedLevel = Math.min(6, this.wantedLevel + 2);
+    this.wantedTimer = 0;
+    this.score += 150;
+    this.cameras.main.shake(160, 0.007);
+    this.showCrimeBanner("Officer Run Over! Maximum Alert!");
   }
 
   // ─── Vehicle runs over an NPC pedestrian ─────────────────────────────────────
@@ -717,6 +790,119 @@ export class WorldScene extends Phaser.Scene {
     this.minimapSystem.addLocationBlip("nav_police_station", 150, 1375, 0x0000ff, "Police");
     this.minimapSystem.addLocationBlip("ind_police_hq", 2300, 1125, 0x0000ff, "Police HQ");
     this.minimapSystem.addLocationBlip("ban_lighthouse", 3540, 625, 0xffd700, "Lighthouse");
+  }
+
+  // ─── Gun Shops ───────────────────────────────────────────────────────────────
+  private setupGunShops() {
+    this.shopZones = [
+      { x: 100, y: 1500, r: 70 },   // Navapur
+      { x: 2450, y: 1150, r: 70 },  // Indrapuri
+      { x: 3400, y: 1100, r: 70 },  // Bandarkhali
+    ];
+    this.minimapSystem.addLocationBlip("ind_gun", 2450, 1150, 0xff4d4d, "Gun Shop");
+    this.minimapSystem.addLocationBlip("ban_gun", 3400, 1100, 0xff4d4d, "Gun Shop");
+
+    // Glowing shop pads on the ground
+    this.shopZones.forEach((z) => {
+      const pad = this.add.graphics();
+      pad.setDepth(2);
+      pad.fillStyle(0xff4d4d, 0.18);
+      pad.fillCircle(z.x, z.y, z.r);
+      pad.lineStyle(2, 0xff4d4d, 0.7);
+      pad.strokeCircle(z.x, z.y, z.r);
+      this.minimapSystem.minimapCamera?.ignore(pad);
+    });
+  }
+
+  private updateShopProximity() {
+    const p = this.player;
+    let near = false;
+    if (p && !p.isWasted && !p.isDriving) {
+      for (const z of this.shopZones) {
+        if (Math.hypot(p.sprite.x - z.x, p.sprite.y - z.y) < z.r) {
+          near = true;
+          break;
+        }
+      }
+    }
+    this.shopState = {
+      open: near,
+      cash: this.cash,
+      owned: p ? [...p.weapons] : [],
+      ammo: p ? { ...p.ammo } : {},
+    };
+  }
+
+  // Called from the React HUD shop panel
+  public buyAmmo(weapon: string) {
+    const p = this.player;
+    if (!p) return;
+    const prices: Record<string, number> = { pistol: 500, smg: 1200, shotgun: 1500 };
+    const packs: Record<string, number> = { pistol: 60, smg: 90, shotgun: 24 };
+    const price = prices[weapon];
+    if (price === undefined) return;
+    if (this.cash < price) {
+      this.showCrimeBanner("Not enough cash!");
+      return;
+    }
+    this.cash -= price;
+    if (!p.weapons.includes(weapon)) p.weapons.push(weapon);
+    p.ammo[weapon] = (p.ammo[weapon] || 0) + packs[weapon];
+    this.showCrimeBanner(`Bought ${packs[weapon]} ${weapon.toUpperCase()} rounds`);
+  }
+
+  public buyArmor() {
+    const p = this.player;
+    if (!p) return;
+    const price = 2000;
+    if (this.cash < price) {
+      this.showCrimeBanner("Not enough cash!");
+      return;
+    }
+    this.cash -= price;
+    p.armor = 100;
+    this.showCrimeBanner("Body Armor equipped");
+  }
+
+  // ─── GPS route line to the active objective ──────────────────────────────────
+  private updateGps() {
+    if (!this.gpsGraphics) return;
+    this.gpsGraphics.clear();
+
+    const target =
+      this.sideMissionSystem?.getActiveTarget() ||
+      this.storyManager?.getActiveTarget() ||
+      null;
+    if (!target) return;
+
+    const p = this.player;
+    const sx = p.isDriving && p.currentVehicle ? p.currentVehicle.sprite.x : p.sprite.x;
+    const sy = p.isDriving && p.currentVehicle ? p.currentVehicle.sprite.y : p.sprite.y;
+
+    // Dashed glowing line from player to target
+    const dx = target.x - sx;
+    const dy = target.y - sy;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) return;
+    const ux = dx / len;
+    const uy = dy / len;
+
+    this.gpsGraphics.lineStyle(5, 0x22d3ee, 0.85);
+    const dash = 22;
+    const gap = 16;
+    let d = 0;
+    this.gpsGraphics.beginPath();
+    while (d < len) {
+      const d2 = Math.min(d + dash, len);
+      this.gpsGraphics.moveTo(sx + ux * d, sy + uy * d);
+      this.gpsGraphics.lineTo(sx + ux * d2, sy + uy * d2);
+      d += dash + gap;
+    }
+    this.gpsGraphics.strokePath();
+
+    // Target ring
+    this.gpsGraphics.lineStyle(3, 0x22d3ee, 0.9);
+    this.gpsGraphics.strokeCircle(target.x, target.y, 16);
   }
 
   // --- Bullet actions ---
