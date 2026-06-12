@@ -136,6 +136,19 @@ export class WorldScene extends Phaser.Scene {
     this.setupMinimapLocations();
     this.setupDynamicJsonTriggers();
 
+    // Side missions (available in solo & co-op, tracks Player 1)
+    this.sideMissionSystem = new SideMissionSystem(this);
+    this.setupGunShops();
+
+    // GPS route line graphic (world space — shows on main + minimap)
+    this.gpsGraphics = this.add.graphics();
+    this.gpsGraphics.setDepth(3);
+
+    this.events.once("shutdown", () => {
+      this.sideMissionSystem?.destroy();
+      this.sideMissionSystem = undefined;
+    });
+
     // Bullet overlaps — hostile bullets hurt players, player bullets hurt NPCs
     // In co-op: player bullets can also hurt the OTHER player (friendly fire)
     this.physics.add.overlap(this.bullets, this.player.sprite, this.handleBulletHitPlayer, undefined, this);
