@@ -51,6 +51,10 @@ export class Player {
   public weaponIndex = 0;
   private weaponSwapCd = 0;
 
+  // Per-weapon ammo. Pistol starts loaded; SMG/shotgun must be bought at the Gun Shop.
+  public ammo: Record<string, number> = { pistol: 120, smg: 0, shotgun: 0 };
+  private emptyMsgCd = 0;
+
   public keys: any;
   private enterKeyCd = 0;
 
