@@ -12,6 +12,7 @@ import { MinimapSystem } from "../systems/MinimapSystem";
 import { OptimizationSystem } from "../systems/OptimizationSystem";
 import { CameraManager } from "../systems/CameraManager";
 import { StoryManager } from "../systems/StoryManager";
+import { SideMissionSystem } from "../systems/SideMissionSystem";
 import { preloadAssets, processTexturesBlackToAlpha, getCharFrame } from "../systems/AssetLoader";
 
 export class WorldScene extends Phaser.Scene {
@@ -42,6 +43,22 @@ export class WorldScene extends Phaser.Scene {
   public activeSubtitleSub = "";
   public activeObjective = "";
   public storyManager?: StoryManager;
+
+  // Side missions
+  public sideMissionSystem?: SideMissionSystem;
+  public activeSideObjective = "";
+
+  // GPS route line graphics
+  private gpsGraphics?: Phaser.GameObjects.Graphics;
+
+  // Gun shop state (read by the React HUD)
+  public shopState: {
+    open: boolean;
+    cash: number;
+    owned: string[];
+    ammo: Record<string, number>;
+  } = { open: false, cash: 0, owned: [], ammo: {} };
+  private shopZones: { x: number; y: number; r: number }[] = [];
 
   // Groups
   public bullets!: Phaser.Physics.Arcade.Group;
