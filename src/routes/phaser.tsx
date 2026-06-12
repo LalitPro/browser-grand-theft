@@ -238,6 +238,8 @@ function PhaserPage() {
               )}
               <p className="text-[9px] uppercase tracking-wider text-white/60 mt-1.5">
                 Gun: <span className="text-white font-bold">{stats.p2Weapon.toUpperCase()}</span>
+                <span className="ml-2 text-[#39b6ff] font-bold">{stats.p2Ammo}</span>
+                <span className="text-white/40"> rounds</span>
               </p>
             </div>
           )}
