@@ -223,6 +223,15 @@ export class WorldScene extends Phaser.Scene {
       undefined,
       this
     );
+
+    // Vehicle runs over a cop at speed (kill cop)
+    this.physics.add.overlap(
+      this.vehiclesPhysicsGroup,
+      this.copsPhysicsGroup,
+      this.handleVehicleRamCop,
+      undefined,
+      this
+    );
     
     // Key press for resetting wanted level for convenience
     if (this.input.keyboard) {
