@@ -792,6 +792,119 @@ export class WorldScene extends Phaser.Scene {
     this.minimapSystem.addLocationBlip("ban_lighthouse", 3540, 625, 0xffd700, "Lighthouse");
   }
 
+  // ─── Gun Shops ───────────────────────────────────────────────────────────────
+  private setupGunShops() {
+    this.shopZones = [
+      { x: 100, y: 1500, r: 70 },   // Navapur
+      { x: 2450, y: 1150, r: 70 },  // Indrapuri
+      { x: 3400, y: 1100, r: 70 },  // Bandarkhali
+    ];
+    this.minimapSystem.addLocationBlip("ind_gun", 2450, 1150, 0xff4d4d, "Gun Shop");
+    this.minimapSystem.addLocationBlip("ban_gun", 3400, 1100, 0xff4d4d, "Gun Shop");
+
+    // Glowing shop pads on the ground
+    this.shopZones.forEach((z) => {
+      const pad = this.add.graphics();
+      pad.setDepth(2);
+      pad.fillStyle(0xff4d4d, 0.18);
+      pad.fillCircle(z.x, z.y, z.r);
+      pad.lineStyle(2, 0xff4d4d, 0.7);
+      pad.strokeCircle(z.x, z.y, z.r);
+      this.minimapSystem.minimapCamera?.ignore(pad);
+    });
+  }
+
+  private updateShopProximity() {
+    const p = this.player;
+    let near = false;
+    if (p && !p.isWasted && !p.isDriving) {
+      for (const z of this.shopZones) {
+        if (Math.hypot(p.sprite.x - z.x, p.sprite.y - z.y) < z.r) {
+          near = true;
+          break;
+        }
+      }
+    }
+    this.shopState = {
+      open: near,
+      cash: this.cash,
+      owned: p ? [...p.weapons] : [],
+      ammo: p ? { ...p.ammo } : {},
+    };
+  }
+
+  // Called from the React HUD shop panel
+  public buyAmmo(weapon: string) {
+    const p = this.player;
+    if (!p) return;
+    const prices: Record<string, number> = { pistol: 500, smg: 1200, shotgun: 1500 };
+    const packs: Record<string, number> = { pistol: 60, smg: 90, shotgun: 24 };
+    const price = prices[weapon];
+    if (price === undefined) return;
+    if (this.cash < price) {
+      this.showCrimeBanner("Not enough cash!");
+      return;
+    }
+    this.cash -= price;
+    if (!p.weapons.includes(weapon)) p.weapons.push(weapon);
+    p.ammo[weapon] = (p.ammo[weapon] || 0) + packs[weapon];
+    this.showCrimeBanner(`Bought ${packs[weapon]} ${weapon.toUpperCase()} rounds`);
+  }
+
+  public buyArmor() {
+    const p = this.player;
+    if (!p) return;
+    const price = 2000;
+    if (this.cash < price) {
+      this.showCrimeBanner("Not enough cash!");
+      return;
+    }
+    this.cash -= price;
+    p.armor = 100;
+    this.showCrimeBanner("Body Armor equipped");
+  }
+
+  // ─── GPS route line to the active objective ──────────────────────────────────
+  private updateGps() {
+    if (!this.gpsGraphics) return;
+    this.gpsGraphics.clear();
+
+    const target =
+      this.sideMissionSystem?.getActiveTarget() ||
+      this.storyManager?.getActiveTarget() ||
+      null;
+    if (!target) return;
+
+    const p = this.player;
+    const sx = p.isDriving && p.currentVehicle ? p.currentVehicle.sprite.x : p.sprite.x;
+    const sy = p.isDriving && p.currentVehicle ? p.currentVehicle.sprite.y : p.sprite.y;
+
+    // Dashed glowing line from player to target
+    const dx = target.x - sx;
+    const dy = target.y - sy;
+    const len = Math.hypot(dx, dy);
+    if (len < 5) return;
+    const ux = dx / len;
+    const uy = dy / len;
+
+    this.gpsGraphics.lineStyle(5, 0x22d3ee, 0.85);
+    const dash = 22;
+    const gap = 16;
+    let d = 0;
+    this.gpsGraphics.beginPath();
+    while (d < len) {
+      const d2 = Math.min(d + dash, len);
+      this.gpsGraphics.moveTo(sx + ux * d, sy + uy * d);
+      this.gpsGraphics.lineTo(sx + ux * d2, sy + uy * d2);
+      d += dash + gap;
+    }
+    this.gpsGraphics.strokePath();
+
+    // Target ring
+    this.gpsGraphics.lineStyle(3, 0x22d3ee, 0.9);
+    this.gpsGraphics.strokeCircle(target.x, target.y, 16);
+  }
+
   // --- Bullet actions ---
 
   public fireBullet(x: number, y: number, angle: number, isHostile: boolean) {
