@@ -214,6 +214,21 @@ function PhaserPage() {
             </div>
           )}
 
+          {/* Side Mission Objective Panel */}
+          {stats.sideObjective && (
+            <div className="rounded border-l-4 border-l-[#22d3ee] border-y border-r border-white/10 bg-black/75 p-3 backdrop-blur-md text-left w-64 pointer-events-auto shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="flex h-1.5 w-1.5 rounded-full bg-[#22d3ee] animate-ping" />
+                <p className="text-[9px] uppercase tracking-widest text-[#22d3ee] font-bold">
+                  Side Mission
+                </p>
+              </div>
+              <p className="text-xs font-medium text-white/90 leading-relaxed font-sans">
+                {stats.sideObjective}
+              </p>
+            </div>
+          )}
+
           {/* P2 Health & Armor Bar */}
           {stats.isCoop && (
             <div className="rounded bg-black/60 p-2.5 border border-white/10 text-white backdrop-blur-md w-48 text-left pointer-events-auto mt-1">
