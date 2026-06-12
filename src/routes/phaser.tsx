@@ -277,6 +277,9 @@ function PhaserPage() {
         <p className="text-[10px] uppercase tracking-wider text-white/70 mt-1 border-t border-white/10 pt-1">
           Cheats: <span className="text-[#ff4d4d] font-bold">K</span> Wanted Up | <span className="text-[#7bd88f] font-bold">L</span> Wanted Clear
         </p>
+        <p className="text-[10px] uppercase tracking-wider text-white/70 mt-1 border-t border-white/10 pt-1">
+          <span className="text-[#22d3ee] font-bold">T</span> Start Side Mission (cyan blip) | Walk onto red pad for <span className="text-[#ff4d4d] font-bold">Gun Shop</span>
+        </p>
       </div>
 
       {/* Subtitles Overlay */}
