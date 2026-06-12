@@ -731,11 +731,36 @@ export class WorldScene extends Phaser.Scene {
       this.showCrimeBanner(`NPC car hit you! -${dmg} HP`);
     } else {
       // Player-driven vehicle rams the other player: partial damage
-      const dmg = Math.min(25, Math.floor(speed * 0.1));
+      // High-speed rams are lethal (GTA-style road kill); slow taps just hurt.
+      const dmg = speed > 120 ? 100 : Math.min(45, Math.floor(speed * 0.25));
       hitPlayer.takeDamage(dmg);
-      this.cameras.main.shake(150, 0.007);
-      this.showCrimeBanner(`Ram! -${dmg} HP`);
+      this.cameras.main.shake(180, 0.009);
+      this.showCrimeBanner(dmg >= 100 ? "Splattered the other player!" : `Ram! -${dmg} HP`);
     }
+  }
+
+  // ─── Vehicle runs over a COP at speed (kill) ─────────────────────────────────
+  private handleVehicleRamCop(vehicleSprite: any, copSprite: any) {
+    const vehicle = vehicleSprite.getData("vehicleClass") as Vehicle;
+    if (!vehicle || vehicle.isWrecked) return;
+    // Only player-driven cars score kills; NPC traffic shouldn't farm cops
+    if (vehicle.isNpcTraffic && !vehicle.driver) return;
+    if (Math.abs(vehicle.speed) < 90) return;
+
+    const cop = this.policeSystem.spawnedCops.find((c: any) => c.sprite === copSprite);
+    if (!cop) return;
+    // Don't run over armored vehicles on foot-cop logic
+    if (cop.type === "cruiser" || cop.type === "apc") return;
+
+    const vis = copSprite.getData("visualSprite");
+    if (vis && vis.active) vis.destroy();
+    copSprite.destroy();
+    this.policeSystem.spawnedCops = this.policeSystem.spawnedCops.filter((c: any) => c !== cop);
+    this.wantedLevel = Math.min(6, this.wantedLevel + 2);
+    this.wantedTimer = 0;
+    this.score += 150;
+    this.cameras.main.shake(160, 0.007);
+    this.showCrimeBanner("Officer Run Over! Maximum Alert!");
   }
 
   // ─── Vehicle runs over an NPC pedestrian ─────────────────────────────────────
