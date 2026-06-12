@@ -166,13 +166,14 @@ export default function LosSantosGame() {
 
       {screen !== "playing" && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-[var(--gradient-overlay)] px-6">
-          <div className="w-full max-w-xl text-center">
-            <p className="mb-2 font-display text-sm uppercase tracking-[0.4em] text-accent">Welcome to</p>
+          <div className="w-full max-w-2xl text-center">
+            <p className="mb-2 font-display text-sm uppercase tracking-[0.4em] text-accent">An Indian Crime Saga</p>
             <h1 className="font-display text-6xl uppercase leading-[0.9] sm:text-8xl">
-              <span className="text-gradient">Los Pollos</span>
+              <span className="text-gradient">Mitti Aur</span>
               <br />
-              <span className="text-foreground">Streets</span>
+              <span className="text-foreground">Lahu</span>
             </h1>
+            <p className="mt-2 text-xs uppercase tracking-[0.3em] text-muted-foreground">Soil &amp; Blood · Navapur · Indrapuri · Bandarkhali</p>
 
             {screen === "over" ? (
               <div className="mt-5">
@@ -184,40 +185,56 @@ export default function LosSantosGame() {
                 <p className="mt-1 text-sm text-muted-foreground">Best run: {best}</p>
               </div>
             ) : (
-              <p className="mx-auto mt-4 max-w-md text-muted-foreground">
-                Roam a small Indian-style city: grab a car or bike, collect cash, and pull off crimes to
-                heat up the cops. Share one car in co-op — the driver drives while the other does drive-bys
-                (swap seats anytime). Watch for armed thugs who shoot back, and duck into the Pay 'n' Spray
-                to lose your wanted level.
+              <p className="mx-auto mt-4 max-w-lg text-muted-foreground">
+                Play Kabir "Kaba" Thorne across a three-city Indian open world — rise from Navapur's
+                back-alley collections to the smuggling docks of Bandarkhali in a 27-mission crime
+                campaign of gang wars, political corruption and betrayal. Drive, shoot, and outrun the cops.
               </p>
             )}
 
+            {/* Primary: full story open world */}
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <button
-                onClick={() => startGame("solo")}
-                className="inline-flex w-60 items-center justify-center rounded-md bg-primary px-8 py-4 font-display text-xl uppercase tracking-wider text-primary-foreground shadow-[var(--shadow-neon)] transition-transform hover:scale-105 active:scale-95"
-              >
-                {screen === "over" ? "Play Solo" : "Solo"}
-              </button>
-              <button
-                onClick={() => startGame("coop")}
-                className="inline-flex w-60 items-center justify-center rounded-md border border-accent bg-accent/15 px-8 py-4 font-display text-xl uppercase tracking-wider text-accent shadow-[var(--shadow-pink)] transition-transform hover:scale-105 active:scale-95"
-              >
-                Local Co-op
-              </button>
               <Link
                 to="/phaser"
-                className="inline-flex w-60 items-center justify-center rounded-md border border-primary/40 bg-primary/20 px-8 py-4 font-display text-xl uppercase tracking-wider text-primary shadow-[var(--shadow-neon)] transition-transform hover:scale-105 active:scale-95 text-center"
+                className="inline-flex w-64 items-center justify-center rounded-md bg-primary px-8 py-4 font-display text-xl uppercase tracking-wider text-primary-foreground shadow-[var(--shadow-neon)] transition-transform hover:scale-105 active:scale-95 text-center"
               >
-                Phaser Solo Map
+                Story Mode
               </Link>
               <Link
                 to="/phaser"
                 search={{ mode: "coop" }}
-                className="inline-flex w-60 items-center justify-center rounded-md border border-accent bg-accent/15 px-8 py-4 font-display text-xl uppercase tracking-wider text-accent shadow-[var(--shadow-pink)] transition-transform hover:scale-105 active:scale-95 text-center"
+                className="inline-flex w-64 items-center justify-center rounded-md border border-accent bg-accent/15 px-8 py-4 font-display text-xl uppercase tracking-wider text-accent shadow-[var(--shadow-pink)] transition-transform hover:scale-105 active:scale-95 text-center"
               >
-                Phaser Co-op Map
+                Co-op Map
               </Link>
+            </div>
+
+            {/* Secondary: classic arcade sandbox */}
+            <div className="mt-3 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <button
+                onClick={() => startGame("solo")}
+                className="inline-flex w-64 items-center justify-center rounded-md border border-border bg-card/40 px-8 py-3 font-display text-base uppercase tracking-wider text-muted-foreground transition-transform hover:scale-105 hover:text-foreground active:scale-95"
+              >
+                {screen === "over" ? "Classic — Play Solo" : "Classic Arcade"}
+              </button>
+              <button
+                onClick={() => startGame("coop")}
+                className="inline-flex w-64 items-center justify-center rounded-md border border-border bg-card/40 px-8 py-3 font-display text-base uppercase tracking-wider text-muted-foreground transition-transform hover:scale-105 hover:text-foreground active:scale-95"
+              >
+                Classic Co-op
+              </button>
+            </div>
+
+            {/* Story chapters */}
+            <div className="mx-auto mt-6 max-w-lg rounded-md border border-border bg-card/30 p-3 text-left">
+              <p className="mb-1.5 font-display text-xs uppercase tracking-[0.3em] text-accent">The Campaign — 27 Missions</p>
+              <ul className="grid grid-cols-1 gap-0.5 text-xs text-muted-foreground sm:grid-cols-2">
+                <li>1 · Beginnings (Navapur)</li>
+                <li>2 · Rising Through The Streets</li>
+                <li>3 · Building An Empire</li>
+                <li>4 · Betrayal And War</li>
+                <li className="sm:col-span-2">5 · Endgame — Mitti Aur Lahu</li>
+              </ul>
             </div>
 
             <label className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
@@ -228,7 +245,7 @@ export default function LosSantosGame() {
                 className="h-4 w-4 accent-[var(--accent)]"
               />
               <span>
-                <span className="font-display uppercase tracking-wider text-accent">PvP</span> friendly fire (co-op) — players can shoot each other
+                <span className="font-display uppercase tracking-wider text-accent">PvP</span> friendly fire (classic co-op) — players can shoot each other
               </span>
             </label>
 
