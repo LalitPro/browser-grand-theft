@@ -443,4 +443,17 @@ export class StoryManager {
     this.clearObjectiveMarkers();
     this.clearStoryEntities();
   }
+
+  // GPS target: active objective location, or the next mission start marker.
+  public getActiveTarget(): { x: number; y: number } | null {
+    if (!this.currentMission) return null;
+    if (!this.isMissionActive) {
+      return { x: this.currentMission.startX, y: this.currentMission.startY };
+    }
+    const obj = this.currentMission.objectives[this.activeObjectiveIndex];
+    if (obj && obj.targetX !== undefined && obj.targetY !== undefined) {
+      return { x: obj.targetX, y: obj.targetY };
+    }
+    return null;
+  }
 }
