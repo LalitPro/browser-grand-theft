@@ -86,6 +86,7 @@ export class StoryManager {
   }
 
   public update(dt: number) {
+    // (target getter is below)
     if (this.scene.registry.get("isCoop")) {
       this.destroyStartMarker();
       return;
