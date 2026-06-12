@@ -4,17 +4,17 @@ import LosSantosGame from "@/components/game/LosSantosGame";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Los Pollos Streets — Free Top-Down Driving Game in Your Browser" },
+      { title: "Mitti Aur Lahu — Free Indian Open-World Crime Game in Your Browser" },
       {
         name: "description",
         content:
-          "Play a free GTA-style top-down driving game right in your browser. Grab cash, dodge the cops, and outrun your wanted level. No download required.",
+          "Play Mitti Aur Lahu, a free GTA-style Indian open-world crime game. Follow Kabir Thorne through a 27-mission story across Navapur, Indrapuri and Bandarkhali. No download required.",
       },
-      { property: "og:title", content: "Los Pollos Streets — Browser Driving Game" },
+      { property: "og:title", content: "Mitti Aur Lahu — Indian Open-World Crime Game" },
       {
         property: "og:description",
         content:
-          "A free GTA-inspired open-city driving game you can play instantly in the browser.",
+          "A free GTA-inspired Indian open-world crime saga with a 27-mission story campaign, playable instantly in the browser.",
       },
       { property: "og:type", content: "website" },
     ],
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/")({
 function Index() {
   return (
     <>
-      <h1 className="sr-only">Los Pollos Streets — free browser driving game</h1>
+      <h1 className="sr-only">Mitti Aur Lahu — free Indian open-world crime game</h1>
       <LosSantosGame />
     </>
   );
