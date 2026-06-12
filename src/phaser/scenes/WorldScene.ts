@@ -255,6 +255,11 @@ export class WorldScene extends Phaser.Scene {
       this.storyManager.update(dt);
     }
 
+    if (this.sideMissionSystem) {
+      this.sideMissionSystem.update(dt);
+      this.activeSideObjective = this.sideMissionSystem.objectiveText;
+    }
+
     // 1. Update entities
     this.player.update(dt);
     if (this.player2) {
@@ -389,6 +394,10 @@ export class WorldScene extends Phaser.Scene {
     this.optimizationSystem.update(targetX, targetY);
     this.spawnSystem.update(targetX, targetY, this.time.now);
     this.minimapSystem.updateBlips(targetX, targetY);
+
+    // GPS route + gun shop proximity
+    this.updateGps();
+    this.updateShopProximity();
 
     // 4. Clean active bullets
     this.bullets.getChildren().forEach((b: any) => {
